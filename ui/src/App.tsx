@@ -6,7 +6,7 @@ import { useFlightActions, useHotelActions } from "./actions";
 import AgentTabs from "./components/AgentTabs";
 import ActivityPanel from "./components/ActivityPanel";
 import ArchitectureDiagram from "./components/ArchitectureDiagram";
-import AgentCardView from "./components/AgentCardView";
+import CardStrip, { AgentCardModal } from "./components/CardStrip";
 import "@copilotkit/react-ui/styles.css";
 
 function ActionRegistry() {
@@ -30,19 +30,7 @@ export default function App() {
       </header>
       {showArch && <ArchitectureDiagram onClose={() => setShowArch(false)} />}
       {showCard && (
-        <div className="modal-backdrop" onClick={() => setShowCard(null)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>🪪 A2A Agent Card — {AGENT_META[showCard].label}</h2>
-              <button className="modal-close" onClick={() => setShowCard(null)}>
-                ✕
-              </button>
-            </div>
-            <div className="modal-body card-modal-body">
-              <AgentCardView agentId={showCard} />
-            </div>
-          </div>
-        </div>
+        <AgentCardModal agentId={showCard} onClose={() => setShowCard(null)} />
       )}
       <main className="app-main">
         <aside
@@ -92,6 +80,11 @@ export default function App() {
           )}
         </aside>
         <section className="chat-pane">
+          <CardStrip
+            selected={agentId}
+            onSelect={setAgentId}
+            onOpenCard={setShowCard}
+          />
           <CopilotKit
             selfManagedAgents={agents}
             agentId={agentId}
