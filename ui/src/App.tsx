@@ -5,6 +5,7 @@ import { makeAgents, AGENT_META, type AgentId } from "./agents";
 import { useFlightActions, useHotelActions } from "./actions";
 import AgentTabs from "./components/AgentTabs";
 import ActivityPanel from "./components/ActivityPanel";
+import ArchitectureDiagram from "./components/ArchitectureDiagram";
 import "@copilotkit/react-ui/styles.css";
 
 function ActionRegistry() {
@@ -17,13 +18,18 @@ export default function App() {
   const agents = useMemo(() => makeAgents(), []);
   const [agentId, setAgentId] = useState<AgentId>("flight");
   const [activityExpanded, setActivityExpanded] = useState(false);
+  const [showArch, setShowArch] = useState(false);
 
   return (
     <div className="app">
       <header className="app-header">
         <h1>A2A Travel Demo</h1>
         <AgentTabs agentId={agentId} onSwitch={setAgentId} />
+        <button className="arch-button" onClick={() => setShowArch(true)}>
+          🗺️ Architecture
+        </button>
       </header>
+      {showArch && <ArchitectureDiagram onClose={() => setShowArch(false)} />}
       <main className="app-main">
         <aside
           className={`activity-pane ${activityExpanded ? "expanded" : ""}`}
