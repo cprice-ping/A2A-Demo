@@ -1373,6 +1373,7 @@ source = { editable = "." }
 dependencies = [
     { name = "ag-ui-adk" },
     { name = "google-adk", extra = ["a2a"] },
+    { name = "httpx" },
     { name = "uvicorn" },
 ]
 
@@ -1385,6 +1386,7 @@ dev = [
 requires-dist = [
     { name = "ag-ui-adk", specifier = ">=0.7,<0.8" },
     { name = "google-adk", extras = ["a2a"], specifier = ">=2.9,<3" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "uvicorn", specifier = ">=0.35" },
 ]
 

@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Travel planner host agent: delegates to flight and hotel specialists over A2A"
 requires-python = ">=3.11,<3.14"
 dependencies = [
+    "httpx>=0.27",
     "google-adk[a2a]>=2.9,<3",
     "ag-ui-adk>=0.7,<0.8",
     "uvicorn>=0.35",

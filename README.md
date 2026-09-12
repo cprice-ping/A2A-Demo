@@ -136,6 +136,8 @@ No LLM tests — model calls are exercised manually/via the chat UI.
 
 - **Mounted sub-app lifespans don't run automatically.** Both FastMCP's session manager AND `to_a2a()`'s route attachment live in their sub-app lifespans — the parent must drive both (see `main.py` in either domain agent; a fresh `to_a2a()` app has an *empty router* until its lifespan runs).
 - **The card's JSON-RPC URL needs a trailing slash** (`http://host:8080/a2a/`) — a2a clients don't follow the 307 from `/a2a`.
+- **RemoteA2aAgent rejects plain-http card URLs** unless the host is loopback — container-network names (`flight-agent:8080`) fail at card fetch. Fix: fetch the card JSON yourself and pass the `AgentCard` object (ADK explicitly leaves direct-card transport to the caller — right for a trusted container network).
+- **CopilotKit agent selection**: the v1 `CopilotSidebar` resolves its agent from the v1 `agent` prop, not the v2 `agentId` — pass both (`<CopilotKit agent={id} agentId={id} selfManagedAgents={...}>`), else it looks for a nonexistent `'default'` agent.
 - **a2a-sdk 1.x is protobuf-based**: `AgentCard` uses `supported_interfaces` (list of `AgentInterface`), not a flat `url` field.
 - **fastmcp 2.x, not 4.x**: fastmcp 4 requires `mcp>=2` which hard-conflicts with google-adk's `mcp>=1.24,<2` pin. 2.14.x matches exactly.
 - **CopilotKit**: the v1 `agents` prop is gone in 1.71 — use `selfManagedAgents` + `agentId` (v2 wiring) with direct `HttpAgent` connections (no CopilotKit runtime needed).

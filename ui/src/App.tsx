@@ -27,6 +27,7 @@ export default function App() {
           <CopilotKit
             selfManagedAgents={agents}
             agentId={agentId}
+            agent={agentId}
             key={agentId}
             showDevConsole={false}
           >
