@@ -443,12 +443,18 @@ body {
 }
 
 /* Architecture button + modal */
+.pane-buttons {
+  display: flex;
+  gap: 8px;
+}
+
 .arch-button {
+  flex: 1;
   border: 1px solid var(--border);
   background: var(--bg);
   border-radius: 8px;
-  padding: 8px 14px;
-  font-size: 14px;
+  padding: 8px 10px;
+  font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -456,6 +462,79 @@ body {
 .arch-button:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* Agent card modal */
+.card-modal-body {
+  justify-content: flex-start;
+}
+
+.agent-card {
+  width: 100%;
+  max-width: 720px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.agent-card-name {
+  font-weight: 700;
+  font-size: 15px;
+  font-family: ui-monospace, monospace;
+}
+
+.agent-card-desc {
+  margin: 6px 0 12px;
+}
+
+.agent-card-endpoint {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  background: #f1f5f9;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.agent-card-endpoint code {
+  font-size: 12px;
+}
+
+.agent-card-skills {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skill {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.skill-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.skill-desc {
+  color: var(--ink);
+  margin-top: 4px;
+}
+
+.skill-examples {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.card-note {
+  margin-top: 12px;
+  font-size: 12px;
 }
 
 .modal-backdrop {

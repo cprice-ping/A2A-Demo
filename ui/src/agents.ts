@@ -3,6 +3,13 @@ import { HttpAgent } from "@ag-ui/client";
 /** Direct AG-UI connection per agent — no CopilotKit runtime needed. */
 export type AgentId = "flight" | "hotel" | "planner";
 
+/** Base URLs of the three agents (REST surfaces: card, trace). */
+export const AGENT_BASE: Record<AgentId, string> = {
+  flight: "http://localhost:8080",
+  hotel: "http://localhost:8081",
+  planner: "http://localhost:8082",
+};
+
 export const AGENT_META: Record<AgentId, { label: string; blurb: string }> = {
   flight: {
     label: "✈️ Flight Agent",
