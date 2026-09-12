@@ -58,8 +58,8 @@ flowchart LR
     CHAT -.-> FAGUI
     CHAT -.-> HAGUI
 
-    PAGENT -- "1. GET card<br/>2. message/stream<br/>(one leg per call)" ==> FA2A
-    PAGENT -- "1. GET card<br/>2. message/stream<br/>(one leg per call)" ==> HA2A
+    PAGENT == "1. GET card<br/>2. message/stream (one leg per call)" ==> FA2A
+    PAGENT == "1. GET card<br/>2. message/stream (one leg per call)" ==> HA2A
 
     FA2A -- "MCP (self-connection)" --> FMCP
     HA2A -- "MCP (self-connection)" --> HMCP
