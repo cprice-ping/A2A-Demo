@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 
 import httpx
@@ -12,6 +13,8 @@ from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
 from google.adk.tools.agent_tool import AgentTool
 from ag_ui_adk import AGUIToolset
 from a2a.types import AgentCard
+
+from .trace import record
 
 FLIGHT_CARD_URL = os.environ["FLIGHT_AGENT_CARD_URL"]
 HOTEL_CARD_URL = os.environ["HOTEL_AGENT_CARD_URL"]
@@ -33,9 +36,34 @@ def fetch_card(url: str) -> AgentCard:
     did not come off the network inside ADK, so its transport is the caller's
     responsibility — that's fine on a trusted compose/k8s network.
     """
+    record("travel-planner", "a2a.card_fetch", {"url": url})
     resp = httpx.get(url, timeout=15.0)
     resp.raise_for_status()
     return Parse(resp.content, AgentCard())
+
+
+def _make_traced_client(target: str) -> httpx.AsyncClient:
+    """AsyncClient recording outbound A2A calls for the trace panel."""
+
+    async def log_request(request: httpx.Request) -> None:
+        summary: dict = {"target": target}
+        try:
+            body = json.loads(request.content)
+            message = (body.get("params") or {}).get("message") or {}
+            text = next(
+                (
+                    p.get("text")
+                    for p in message.get("parts", [])
+                    if isinstance(p, dict) and p.get("text")
+                ),
+                None,
+            )
+            summary.update({"rpc": body.get("method"), "text": str(text or "")[:140]})
+        except Exception:
+            pass
+        record("travel-planner", "a2a.outbound", summary)
+
+    return httpx.AsyncClient(timeout=600.0, event_hooks={"request": [log_request]})
 
 
 flight_specialist = RemoteA2aAgent(
@@ -45,6 +73,7 @@ flight_specialist = RemoteA2aAgent(
     ),
     agent_card=fetch_card(FLIGHT_CARD_URL),
     use_legacy=False,
+    httpx_client=_make_traced_client("flight-agent"),
 )
 
 hotel_specialist = RemoteA2aAgent(
@@ -52,6 +81,7 @@ hotel_specialist = RemoteA2aAgent(
     description="Searches and books hotels by city and stay dates.",
     agent_card=fetch_card(HOTEL_CARD_URL),
     use_legacy=False,
+    httpx_client=_make_traced_client("hotel-agent"),
 )
 
 # AgentTool keeps the planner in control of the loop: it CALLS each specialist

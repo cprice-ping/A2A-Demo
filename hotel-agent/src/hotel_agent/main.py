@@ -23,6 +23,7 @@ from .agent import a2a_agent, root_agent
 from .card import build_card
 from .api.routes import router as api_router
 from .mcp_server import mcp
+from .trace import ProtocolTraceMiddleware, trace_router
 
 # fastmcp serves at "/" inside its own app; the mount point provides the /mcp prefix.
 mcp_app = mcp.http_app(path="/")
@@ -58,8 +59,11 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api")
+app.include_router(trace_router("hotel-agent"), prefix="/api")
 app.mount("/mcp", mcp_app)
 app.mount("/a2a", a2a_app)
+# Protocol-activity recorder — outermost so it sees /a2a, /mcp and /agui.
+app.add_middleware(ProtocolTraceMiddleware, source="hotel-agent")
 add_adk_fastapi_endpoint(
     app,
     ADKAgent(adk_agent=root_agent, app_name="hotel_agent", user_id="demo-user"),

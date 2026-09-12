@@ -19,6 +19,7 @@ from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 
 from .agent import root_agent
 from .card import build_card
+from .trace import ProtocolTraceMiddleware, trace_router
 
 a2a_app = to_a2a(root_agent, agent_card=build_card())
 
@@ -40,6 +41,10 @@ app.add_middleware(
 )
 
 app.mount("/a2a", a2a_app)
+# Protocol-activity recorder — outermost so it sees /a2a and /agui.
+app.add_middleware(ProtocolTraceMiddleware, source="travel-planner")
+
+app.include_router(trace_router("travel-planner"), prefix="/api")
 add_adk_fastapi_endpoint(
     app,
     ADKAgent(adk_agent=root_agent, app_name="travel_planner", user_id="demo-user"),

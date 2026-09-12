@@ -4,6 +4,7 @@ import { CopilotSidebar } from "@copilotkit/react-ui";
 import { makeAgents, AGENT_META, type AgentId } from "./agents";
 import { useFlightActions, useHotelActions } from "./actions";
 import AgentTabs from "./components/AgentTabs";
+import ActivityPanel from "./components/ActivityPanel";
 import "@copilotkit/react-ui/styles.css";
 
 function ActionRegistry() {
@@ -42,6 +43,7 @@ export default function App() {
           </CopilotKit>
         </section>
         <aside className="info-pane">
+          <ActivityPanel enabled />
           <h2>How this works</h2>
           <ul>
             <li>
@@ -60,8 +62,8 @@ export default function App() {
             </li>
           </ul>
           <p className="muted">
-            Try the Flight tab: “Find flights SFO → NYC on 2026-09-20 for 2
-            passengers”.
+            🤝/📡 rows show A2A traffic in and out of each agent; 🔧 rows are
+            MCP tool calls the LLM made.
           </p>
         </aside>
       </main>
