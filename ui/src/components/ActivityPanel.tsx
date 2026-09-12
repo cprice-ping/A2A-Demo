@@ -40,9 +40,15 @@ const KIND_STYLE: Record<string, { icon: string; label: string }> = {
   "a2a.card_fetch": { icon: "📇", label: "Card fetched" },
   "mcp.call": { icon: "🔧", label: "MCP tool call" },
   "mcp.rpc": { icon: "🔧", label: "MCP rpc" },
+  "mcp.setup": { icon: "🔌", label: "MCP session" },
   "agui.run": { icon: "💬", label: "Chat run" },
   "trace.complete": { icon: "✓", label: "" },
 };
+
+/** True for events that arrived from stream replay (before this viewer
+ *  connected) vs live tail. The mountTime ref in ActivityPanel applies the
+ *  same comparison for the history separator. */
+const REPLAY_WINDOW_MS = 1500;
 
 interface Row {
   key: string;
@@ -217,6 +223,7 @@ export default function ActivityPanel({
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const feedRef = useRef<HTMLDivElement>(null);
 
+  const mountTime = useRef(Date.now());
   const rows: Row[] = [
     ...flight.map((event, i) => ({ key: `f${i}-${event.ts}`, event })),
     ...hotel.map((event, i) => ({ key: `h${i}-${event.ts}`, event })),
@@ -224,6 +231,12 @@ export default function ActivityPanel({
   ]
     .sort((a, b) => a.event.ts - b.event.ts)
     .slice(-120);
+
+  // Pre-mount (replayed) events get a visual separator at the boundary so
+  // old ring-buffer history is distinguishable from this session's traffic.
+  const firstLiveIdx = rows.findIndex(
+    (r) => r.event.ts * 1000 >= mountTime.current - REPLAY_WINDOW_MS
+  );
 
   useEffect(() => {
     if (open && feedRef.current && !expandedRows.size) {
@@ -269,7 +282,7 @@ export default function ActivityPanel({
               No activity yet — send the agents a message.
             </div>
           )}
-          {rows.map(({ key, event }) => {
+          {rows.map(({ key, event }, idx) => {
             const style =
               KIND_STYLE[event.kind] ?? { icon: "•", label: event.kind };
             const expandable = hasExchange(event);
@@ -277,6 +290,11 @@ export default function ActivityPanel({
             const time = new Date(event.ts * 1000).toLocaleTimeString();
             return (
               <div key={key}>
+                {idx === firstLiveIdx && firstLiveIdx > 0 && (
+                  <div className="activity-separator">
+                    ↑ earlier activity (from agent history) · this session ↓
+                  </div>
+                )}
                 <div
                   className={`activity-row kind-${event.kind} ${expandable ? "expandable" : ""}`}
                   onClick={expandable ? () => toggleRow(key) : undefined}

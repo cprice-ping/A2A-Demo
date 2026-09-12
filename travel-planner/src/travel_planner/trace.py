@@ -165,6 +165,15 @@ def _text_of(request: Any) -> str:
     return ""
 
 
+def _a2a_quick_summary(body: bytes) -> dict:
+    """Fast rpc/text summary recorded the moment an A2A request arrives."""
+    try:
+        data = json.loads(body)
+    except Exception:
+        return {"rpc": None, "text": ""}
+    return {"rpc": data.get("method"), "text": _text_of(data)}
+
+
 def _summarize_request(path: str, body: bytes) -> dict:
     """Extract a traceable summary from a request body (best-effort)."""
     try:
@@ -183,7 +192,10 @@ def _summarize_request(path: str, body: bytes) -> dict:
                     "args": sorted((params.get("arguments") or {}).keys()),
                 },
             }
-        return {"kind": "mcp.rpc", "detail": {"method": method}}
+        # Session machinery: MCPToolset opens a fresh session (initialize ->
+        # initialized -> tools/list) each ADK turn just to build tool
+        # declarations for the LLM. Real work only shows as tools/call.
+        return {"kind": "mcp.setup", "detail": {"method": method}}
 
     if path.startswith("/agui"):
         messages = data.get("messages") or []
@@ -223,9 +235,10 @@ class ProtocolTraceMiddleware:
         resp_buf = bytearray()
         sse_holder = {"sse": False}
         complete = False
+        arrival_recorded = False
 
         async def buffered_receive():
-            nonlocal complete
+            nonlocal complete, arrival_recorded
             if complete:
                 # Body fully read — pass through live disconnect notifications
                 # (streaming responses poll receive() and must NOT see a
@@ -236,7 +249,17 @@ class ProtocolTraceMiddleware:
                 body.extend(message.get("body", b""))
                 if not message.get("more_body"):
                     complete = True
-                    if not is_a2a:  # a2a exchanges are recorded at completion
+                    if is_a2a:
+                        # Record arrival IMMEDIATELY so the panel shows the
+                        # inbound delegation before/while it executes.
+                        if not arrival_recorded:
+                            arrival_recorded = True
+                            record(
+                                self.source,
+                                "a2a.request",
+                                _a2a_quick_summary(bytes(body)),
+                            )
+                    else:
                         summary = _summarize_request(path, bytes(body))
                         if summary["kind"] != "a2a.ignored":
                             record(self.source, summary["kind"], summary["detail"])
