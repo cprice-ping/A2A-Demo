@@ -229,6 +229,23 @@ class ProtocolTraceMiddleware:
         if not path.startswith(("/a2a", "/mcp", "/agui")):
             await self.app(scope, receive, send)
             return
+        # Non-POST probes (GET/OPTIONS) and MCP session keep-alives with
+        # empty bodies are transport noise (browser inspector probes,
+        # SSE reconnects) — pass through unrecorded. Actual work is a
+        # POST with a JSON body (initialize/tools/call) or an A2A/AG-UI
+        # request.
+        if path.startswith("/mcp"):
+            content_length = next(
+                (
+                    int(v)
+                    for k, v in scope.get("headers", [])
+                    if k.lower() == b"content-length"
+                ),
+                0,
+            )
+            if content_length == 0:
+                await self.app(scope, receive, send)
+                return
 
         is_a2a = path.startswith("/a2a")
         body = bytearray()
@@ -321,12 +338,18 @@ class ProtocolTraceMiddleware:
                     },
                 )
             else:
-                record(
-                    self.source,
-                    "trace.complete",
-                    {
-                        "path": path,
-                        "status": status_holder["status"],
-                        "elapsed_ms": elapsed,
-                    },
+                # Suppress completion rows for MCP 404 probes (planner has no
+                # /mcp surface) and redirects — no signal, just noise.
+                boring = path.startswith("/mcp") and (
+                    status_holder["status"] in (307, 404)
                 )
+                if not boring:
+                    record(
+                        self.source,
+                        "trace.complete",
+                        {
+                            "path": path,
+                            "status": status_holder["status"],
+                            "elapsed_ms": elapsed,
+                        },
+                    )

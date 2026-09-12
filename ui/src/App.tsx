@@ -72,6 +72,7 @@ export default function App() {
             agent={agentId}
             key={agentId}
             showDevConsole={false}
+            enableInspector={false}
           >
             <ActionRegistry />
             <CopilotSidebar
