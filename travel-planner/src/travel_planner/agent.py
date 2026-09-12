@@ -14,7 +14,8 @@ from google.adk.tools.agent_tool import AgentTool
 from ag_ui_adk import AGUIToolset
 from a2a.types import AgentCard
 
-from .trace import record
+from .trace import record, record_exchange
+from typing import Any
 
 FLIGHT_CARD_URL = os.environ["FLIGHT_AGENT_CARD_URL"]
 HOTEL_CARD_URL = os.environ["HOTEL_AGENT_CARD_URL"]
@@ -43,12 +44,23 @@ def fetch_card(url: str) -> AgentCard:
 
 
 def _make_traced_client(target: str) -> httpx.AsyncClient:
-    """AsyncClient recording outbound A2A calls for the trace panel."""
+    """AsyncClient recording full outbound A2A exchanges for the trace panel.
+
+    httpx event hooks run around the whole send, so the response hook has
+    access to the request object; we capture both bodies verbatim (SSE
+    responses are buffered via astream passthrough — handled by reading
+    aread() only for buffered responses; for streams we record what the
+    hooks see: request body + response status, plus the response body when
+    the transport hands it back non-streamed).
+    """
 
     async def log_request(request: httpx.Request) -> None:
-        summary: dict = {"target": target}
+        request_body = None
+        text = ""
+        rpc = None
         try:
             body = json.loads(request.content)
+            rpc = body.get("method")
             message = (body.get("params") or {}).get("message") or {}
             text = next(
                 (
@@ -56,14 +68,55 @@ def _make_traced_client(target: str) -> httpx.AsyncClient:
                     for p in message.get("parts", [])
                     if isinstance(p, dict) and p.get("text")
                 ),
-                None,
+                "",
             )
-            summary.update({"rpc": body.get("method"), "text": str(text or "")[:140]})
+            request_body = body
         except Exception:
             pass
-        record("travel-planner", "a2a.outbound", summary)
+        record(
+            "travel-planner",
+            "a2a.outbound",
+            {"target": target, "rpc": rpc, "text": str(text)[:140]},
+        )
+        # Stash for the response hook. NOTE: use a plain attribute —
+        # request.extensions belongs to httpcore transport plumbing, which
+        # treats values there as callables.
+        request.trace_meta = {"request_body": request_body, "target": target}
 
-    return httpx.AsyncClient(timeout=600.0, event_hooks={"request": [log_request]})
+    async def log_response(response: httpx.Response) -> None:
+        meta = getattr(response.request, "trace_meta", None) or {}
+        if not meta:
+            return
+        request_body = meta.get("request_body")
+        target = meta.get("target", "unknown")
+        content_type = response.headers.get("content-type", "")
+        is_sse = "text/event-stream" in content_type
+        response_obj: Any
+        if is_sse:
+            # Response body is a stream consumed by the A2A client; record
+            # status only (the SPECIALIST's own trace holds the full exchange).
+            response_obj = {"streamed": True}
+        else:
+            try:
+                response_obj = json.loads(response.content)
+            except Exception:
+                response_obj = None
+        record_exchange(
+            source="travel-planner",
+            direction="outbound",
+            path=str(response.request.url.path),
+            request=request_body,
+            response=response_obj,
+            status=response.status_code,
+            elapsed_ms=None,
+            sse=is_sse,
+            peer=meta.get("target", target),
+        )
+
+    return httpx.AsyncClient(
+        timeout=600.0,
+        event_hooks={"request": [log_request], "response": [log_response]},
+    )
 
 
 flight_specialist = RemoteA2aAgent(

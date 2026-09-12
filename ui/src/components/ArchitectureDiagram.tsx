@@ -1,64 +1,67 @@
 import { useEffect, useRef, useState } from "react";
 
 const DIAGRAM = `
-flowchart TB
-    subgraph UI["🖥️ Chat UI — ui/ :5173 (Vite + CopilotKit)"]
-        TABS["Agent tabs<br/>flight · hotel · planner"]
-        CHAT["CopilotSidebar chat<br/>AG-UI HttpAgent → /agui"]
-        CARDS["Widget cards<br/>render_*_search / render_*_booking<br/>(frontend tools)"]
-        PANEL["Protocol activity panel<br/>SSE ← /api/trace/stream ×3"]
-        TABS --> CHAT
-        CHAT -. frontend tool calls .-> CARDS
+flowchart LR
+    USER(["👤 User"])
+
+    subgraph UI["🖥️ Chat UI — :5173 · Vite + CopilotKit"]
+        direction TB
+        TABS["Agent tabs: flight / hotel / planner"]
+        CHAT["CopilotSidebar<br/>AG-UI HttpAgent"]
+        CARDS["Widget cards<br/>render_*_search / render_*_booking"]
+        PANEL["Activity panel<br/>trace SSE ×3"]
     end
 
-    subgraph FP["🧭 travel-planner :8082 — Cloud Run/compose"]
+    subgraph PLANNER["🧭 travel-planner :8082"]
         direction TB
-        PAGENT["ADK Agent<br/>AgentTool(RemoteA2aAgent) ×2<br/>+ AGUIToolset(render_*)"]
-        PA2A["/a2a — A2A JSON-RPC + card"]
         PAGUI["/agui — AG-UI SSE"]
-        PTRACE["/api/trace[/stream]"]
-        PAGENT --> PA2A
-        PAGENT --> PAGUI
+        PAGENT["ADK Agent<br/>tools: AgentTool(RemoteA2aAgent) ×2<br/>+ AGUIToolset(render_*)"]
+        PA2A["/a2a — card + JSON-RPC"]
+        PAGUI --> PAGENT
     end
 
-    subgraph FA["✈️ flight-agent :8080 — Cloud Run (Vertex AI · SA auth · no API key)"]
+    subgraph FLIGHT["✈️ flight-agent :8080 — Cloud Run · Vertex · no API key"]
         direction TB
-        FAGUI["/agui — AG-UI SSE<br/>root_agent + AGUIToolset"]
-        FA2A["/a2a — A2A JSON-RPC + card<br/>a2a_agent (raw-JSON replies)"]
-        FMCP["/mcp — fastmcp<br/>search_flights · book_flight<br/>get_flight · get_booking · list_airports"]
-        FAPI["/api — mock REST<br/>deterministic schedule synthesis"]
-        FSTORE[("booking store<br/>BK-… in-memory")]
+        FAGUI["/agui — root_agent + AGUIToolset"]
+        FA2A["/a2a — a2a_agent<br/>(replies raw JSON)"]
+        FMCP["/mcp — 5 flight tools"]
+        FAPI["/api — mock data"]
+        FSTORE[("BK- store")]
+        FMCP --> FAPI
         FAPI --> FSTORE
     end
 
-    subgraph HA["🏨 hotel-agent :8081 — Kubernetes (kind · GOOGLE_API_KEY secret)"]
+    subgraph HOTEL["🏨 hotel-agent :8081 — Kubernetes (kind) · GOOGLE_API_KEY"]
         direction TB
-        HAGUI["/agui — AG-UI SSE<br/>root_agent + AGUIToolset"]
-        HA2A["/a2a — A2A JSON-RPC + card<br/>a2a_agent (raw-JSON replies)"]
-        HMCP["/mcp — fastmcp<br/>search_hotels · book_hotel<br/>get_hotel · get_booking · list_cities"]
-        HAPI["/api — mock REST<br/>nights / total enrichment"]
-        HSTORE[("booking store<br/>HB-… in-memory")]
+        HAGUI["/agui — root_agent + AGUIToolset"]
+        HA2A["/a2a — a2a_agent<br/>(replies raw JSON)"]
+        HMCP["/mcp — 5 hotel tools"]
+        HAPI["/api — mock data"]
+        HSTORE[("HB- store")]
+        HMCP --> HAPI
         HAPI --> HSTORE
     end
 
+    USER --> TABS --> CHAT
+
     CHAT -- "AG-UI SSE" --> PAGUI
-    CHAT -- "AG-UI SSE" --> FAGUI
-    CHAT -- "AG-UI SSE" --> HAGUI
-    PANEL -- "trace SSE" --> PTRACE
-    PANEL -- "trace SSE" --> FTRACE["/api/trace"]
-    PANEL -- "trace SSE" --> HTRACE["/api/trace"]
+    CHAT -.-> FAGUI
+    CHAT -.-> HAGUI
 
-    PAGENT == "1️⃣ fetch card<br/>2️⃣ delegate one leg<br/>(A2A JSON-RPC)" ==> FA2A
-    PAGENT == "1️⃣ fetch card<br/>2️⃣ delegate one leg<br/>(A2A JSON-RPC)" ==> HA2A
+    PAGENT -- "① GET card<br/>② message/stream<br/>(one leg per call)" ==> FA2A
+    PAGENT -- "① GET card<br/>② message/stream<br/>(one leg per call)" ==> HA2A
 
-    PAGENT -. "render_* with<br/>specialist data" .-> CARDS
-
-    FAGUI -- "MCP streamable-HTTP<br/>(self-connection)" --> FMCP
     FA2A -- "MCP" --> FMCP
-    FMCP --> FAPI
-    HAGUI -- "MCP streamable-HTTP<br/>(self-connection)" --> HMCP
     HA2A -- "MCP" --> HMCP
-    HMCP --> HAPI
+    FAGUI -. "MCP self-conn" .-> FMCP
+    HAGUI -. "MCP self-conn" .-> HMCP
+
+    PAGENT -. "render_flight_search<br/>(verbatim data)" .-> CARDS
+    PAGENT -. "render_hotel_search<br/>(verbatim data)" .-> CARDS
+
+    PANEL <-. "GET /api/trace/stream" .-> PLANNER
+    PANEL <-.-> FLIGHT
+    PANEL <-.-> HOTEL
 
     classDef surface fill:#eff6ff,stroke:#2563eb,color:#1e3a8a;
     classDef domain fill:#f0fdf4,stroke:#047857,color:#14532d;

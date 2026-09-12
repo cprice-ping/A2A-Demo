@@ -25,15 +25,15 @@ export default function App() {
       <header className="app-header">
         <h1>A2A Travel Demo</h1>
         <AgentTabs agentId={agentId} onSwitch={setAgentId} />
-        <button className="arch-button" onClick={() => setShowArch(true)}>
-          🗺️ Architecture
-        </button>
       </header>
       {showArch && <ArchitectureDiagram onClose={() => setShowArch(false)} />}
       <main className="app-main">
         <aside
           className={`activity-pane ${activityExpanded ? "expanded" : ""}`}
         >
+          <button className="arch-button" onClick={() => setShowArch(true)}>
+            🗺️ Architecture
+          </button>
           <ActivityPanel
             enabled
             expanded={activityExpanded}

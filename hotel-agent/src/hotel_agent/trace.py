@@ -1,24 +1,33 @@
-"""Protocol activity trace: in-memory ring buffer + SSE stream.
+"""Protocol activity trace: in-memory ring buffers + SSE stream.
 
-Records wire-level interactions at the protocol seams (/a2a, /mcp, /agui) so
-the UI can show what is actually happening — chat runs, MCP tool calls the
-LLM makes, and inbound A2A delegations from other agents.
+Two stores:
+- events: lightweight feed rows (what the activity panel renders)
+- exchanges: full A2A JSON-RPC request/response bodies, fetched on demand
+  by the UI when a row is expanded (GET /api/trace/a2a)
 """
 
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import time
 from collections import deque
+from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 MAX_HISTORY = 300
+MAX_EXCHANGES = 60
+REQUEST_CAP = 64_000  # bytes of request body retained per exchange
+RESPONSE_CAP = 160_000  # bytes of response body retained per exchange
+MAX_FRAMES = 8  # SSE response frames retained (final ones matter most)
 
 _history: deque[dict] = deque(maxlen=MAX_HISTORY)
+_exchanges: deque[dict] = deque(maxlen=MAX_EXCHANGES)
 _listeners: set[asyncio.Queue] = set()
+_seq = itertools.count(1)
 
 
 def record(source: str, kind: str, detail: dict | None = None) -> None:
@@ -33,6 +42,46 @@ def record(source: str, kind: str, detail: dict | None = None) -> None:
 
 def history() -> list[dict]:
     return list(_history)
+
+
+def record_exchange(
+    *,
+    source: str,
+    direction: str,
+    path: str,
+    request: Any,
+    response: Any,
+    status: int | None,
+    elapsed_ms: int | None,
+    sse: bool = False,
+    peer: str | None = None,
+) -> str:
+    ex = {
+        "id": f"ex-{next(_seq)}",
+        "ts": time.time(),
+        "source": source,
+        "direction": direction,
+        "peer": peer,
+        "path": path,
+        "request": request,
+        "response": response,
+        "status": status,
+        "elapsed_ms": elapsed_ms,
+        "sse": sse,
+    }
+    _exchanges.append(ex)
+    return ex["id"]
+
+
+def exchanges() -> list[dict]:
+    return list(_exchanges)
+
+
+def find_exchange(ex_id: str) -> dict | None:
+    for ex in reversed(_exchanges):
+        if ex["id"] == ex_id:
+            return ex
+    return None
 
 
 async def stream_events():
@@ -63,7 +112,57 @@ def trace_router(source: str) -> APIRouter:
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 
+    @r.get("/trace/a2a")
+    def get_a2a_exchanges() -> dict:
+        return {"exchanges": exchanges()}
+
     return r
+
+
+def _try_json(raw: bytes) -> Any:
+    try:
+        return json.loads(raw)
+    except Exception:
+        try:
+            return raw.decode("utf-8", "replace")[:2000]
+        except Exception:
+            return None
+
+
+def _parse_sse_frames(raw: bytes) -> list:
+    """Parse `data: {...}` SSE frames; keep the LAST MAX_FRAMES (final
+    JSON-RPC responses carry the completed task).
+
+    Handles both LF and CRLF framing (uvicorn emits CRLF).
+    """
+    text = raw.decode("utf-8", "replace").replace("\r\n", "\n")
+    frames: list = []
+    for chunk in text.split("\n\n"):
+        data_lines = [
+            line[5:].strip() for line in chunk.split("\n") if line.startswith("data:")
+        ]
+        if not data_lines:
+            continue
+        # Each `data:` line in an SSE event is one JSON payload here (the A2A
+        # SDK emits one data line per event); join would corrupt that into
+        # invalid multi-frame JSON, so parse each line on its own.
+        for line in data_lines:
+            try:
+                frames.append(json.loads(line))
+            except Exception:
+                pass
+    return frames[-MAX_FRAMES:]
+
+
+def _text_of(request: Any) -> str:
+    """Best-effort user/message text from an A2A JSON-RPC request object."""
+    if not isinstance(request, dict):
+        return ""
+    message = (request.get("params") or {}).get("message") or {}
+    for part in message.get("parts", []):
+        if isinstance(part, dict) and part.get("text"):
+            return str(part["text"])[:140]
+    return ""
 
 
 def _summarize_request(path: str, body: bytes) -> dict:
@@ -94,24 +193,17 @@ def _summarize_request(path: str, body: bytes) -> dict:
         )
         return {"kind": "agui.run", "detail": {"message": str(last_user or "")[:140]}}
 
-    # A2A JSON-RPC
-    message = (data.get("params") or {}).get("message") or {}
-    text = next(
-        (
-            p.get("text")
-            for p in message.get("parts", [])
-            if isinstance(p, dict) and p.get("text")
-        ),
-        None,
-    )
-    return {
-        "kind": "a2a.request",
-        "detail": {"rpc": data.get("method"), "text": str(text or "")[:140]},
-    }
+    # A2A JSON-RPC — the full exchange is recorded at completion; nothing here.
+    return {"kind": "a2a.ignored", "detail": {}}
 
 
 class ProtocolTraceMiddleware:
-    """Pure-ASGI middleware recording POSTs to /a2a, /mcp and /agui."""
+    """Pure-ASGI middleware recording protocol traffic.
+
+    POSTs to /mcp and /agui become lightweight events. POSTs to /a2a become
+    full exchange records: request body + accumulated response body (JSON or
+    SSE frames), captured on the way through without altering the stream.
+    """
 
     def __init__(self, app, source: str):
         self.app = app
@@ -126,7 +218,10 @@ class ProtocolTraceMiddleware:
             await self.app(scope, receive, send)
             return
 
+        is_a2a = path.startswith("/a2a")
         body = bytearray()
+        resp_buf = bytearray()
+        sse_holder = {"sse": False}
         complete = False
 
         async def buffered_receive():
@@ -141,8 +236,10 @@ class ProtocolTraceMiddleware:
                 body.extend(message.get("body", b""))
                 if not message.get("more_body"):
                     complete = True
-                    summary = _summarize_request(path, bytes(body))
-                    record(self.source, summary["kind"], summary["detail"])
+                    if not is_a2a:  # a2a exchanges are recorded at completion
+                        summary = _summarize_request(path, bytes(body))
+                        if summary["kind"] != "a2a.ignored":
+                            record(self.source, summary["kind"], summary["detail"])
             return message
 
         status_holder = {"status": None}
@@ -151,17 +248,62 @@ class ProtocolTraceMiddleware:
         async def send_wrapper(message):
             if message["type"] == "http.response.start":
                 status_holder["status"] = message["status"]
+                if is_a2a:
+                    for k, v in message.get("headers", []):
+                        if k.lower() == b"content-type" and b"text/event-stream" in v:
+                            sse_holder["sse"] = True
+            if (
+                message["type"] == "http.response.body"
+                and is_a2a
+                and len(resp_buf) < RESPONSE_CAP
+            ):
+                resp_buf.extend(message.get("body", b""))
             await send(message)
 
         try:
             await self.app(scope, buffered_receive, send_wrapper)
         finally:
-            record(
-                self.source,
-                "trace.complete",
-                {
-                    "path": path,
-                    "status": status_holder["status"],
-                    "elapsed_ms": int((time.time() - started) * 1000),
-                },
-            )
+            elapsed = int((time.time() - started) * 1000)
+            if is_a2a and status_holder["status"] is not None:
+                request_obj = _try_json(bytes(body[:REQUEST_CAP]))
+                response_obj = (
+                    _parse_sse_frames(bytes(resp_buf[:RESPONSE_CAP]))
+                    if sse_holder["sse"]
+                    else _try_json(bytes(resp_buf[:RESPONSE_CAP]))
+                )
+                ex_id = record_exchange(
+                    source=self.source,
+                    direction="inbound",
+                    path=path,
+                    request=request_obj,
+                    response=response_obj,
+                    status=status_holder["status"],
+                    elapsed_ms=elapsed,
+                    sse=sse_holder["sse"],
+                )
+                rpc = (
+                    request_obj.get("method")
+                    if isinstance(request_obj, dict)
+                    else None
+                )
+                record(
+                    self.source,
+                    "a2a.exchange",
+                    {
+                        "exchange_id": ex_id,
+                        "rpc": rpc,
+                        "text": _text_of(request_obj),
+                        "status": status_holder["status"],
+                        "elapsed_ms": elapsed,
+                    },
+                )
+            else:
+                record(
+                    self.source,
+                    "trace.complete",
+                    {
+                        "path": path,
+                        "status": status_holder["status"],
+                        "elapsed_ms": elapsed,
+                    },
+                )
