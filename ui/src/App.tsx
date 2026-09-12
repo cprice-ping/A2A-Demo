@@ -76,6 +76,8 @@ export default function App() {
             <ActionRegistry />
             <CopilotSidebar
               defaultOpen
+              clickOutsideToClose={false}
+              hitEscapeToClose={false}
               labels={{
                 title: AGENT_META[agentId].label,
                 initial: AGENT_META[agentId].blurb,
