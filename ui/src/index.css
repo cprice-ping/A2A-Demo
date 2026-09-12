@@ -55,22 +55,34 @@ body {
   position: relative;
 }
 
-.info-pane {
-  width: 300px;
-  padding: 20px;
-  border-left: 1px solid var(--border);
-  background: var(--panel);
-  font-size: 13px;
-  line-height: 1.5;
+/* Left pane: activity log + explainer */
+.activity-pane {
+  width: 320px;
+  padding: 14px;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   overflow-y: auto;
+  transition: width 0.15s ease;
 }
 
-.info-pane h2 {
+.activity-pane.expanded {
+  width: min(560px, 50vw);
+}
+
+.info-pane-inner {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.info-pane-inner h2 {
   font-size: 14px;
   margin-top: 0;
 }
 
-.info-pane ul {
+.info-pane-inner ul {
   padding-left: 18px;
 }
 
@@ -232,40 +244,69 @@ body {
 }
 
 @media (max-width: 900px) {
-  .info-pane {
+  .info-pane-inner {
     display: none;
   }
 }
 
 /* Activity panel */
 .activity-panel {
-  margin-bottom: 16px;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
 }
 
 .activity-header {
-  width: 100%;
+  display: flex;
+  align-items: center;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.activity-toggle {
+  flex: 1;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  background: var(--bg);
+  background: none;
   border: none;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   text-align: left;
+  color: var(--ink);
+}
+
+.activity-expand {
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-left: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.activity-expand:hover {
+  color: var(--ink);
 }
 
 .activity-feed {
-  max-height: 260px;
+  height: 320px;
   overflow-y: auto;
   font-size: 11px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   background: var(--panel);
+}
+
+.activity-pane.expanded .activity-feed {
+  height: calc(100vh - 180px);
 }
 
 .activity-row {

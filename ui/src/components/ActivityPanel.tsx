@@ -94,7 +94,15 @@ function useAgentTrace(source: string, enabled: boolean): TraceEvent[] {
   return events;
 }
 
-export default function ActivityPanel({ enabled }: { enabled: boolean }) {
+export default function ActivityPanel({
+  enabled,
+  expanded,
+  onToggleExpanded,
+}: {
+  enabled: boolean;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+}) {
   const flight = useAgentTrace("flight-agent", enabled);
   const hotel = useAgentTrace("hotel-agent", enabled);
   const planner = useAgentTrace("travel-planner", enabled);
@@ -108,7 +116,7 @@ export default function ActivityPanel({ enabled }: { enabled: boolean }) {
     ...planner.map((event, i) => ({ key: `p${i}-${event.ts}`, event })),
   ]
     .sort((a, b) => a.event.ts - b.event.ts)
-    .slice(-80);
+    .slice(-120);
 
   useEffect(() => {
     if (open && feedRef.current) {
@@ -123,13 +131,22 @@ export default function ActivityPanel({ enabled }: { enabled: boolean }) {
   if (!enabled) return null;
 
   return (
-    <div className="activity-panel">
-      <button className="activity-header" onClick={() => setOpen(!open)}>
-        <span>Protocol activity</span>
-        <span className="muted">
-          {connectedCount}/3 streams · {rows.length} events {open ? "▾" : "▸"}
-        </span>
-      </button>
+    <div className={`activity-panel ${expanded ? "expanded" : ""}`}>
+      <div className="activity-header">
+        <button className="activity-toggle" onClick={() => setOpen(!open)}>
+          <span>Protocol activity</span>
+          <span className="muted">
+            {connectedCount}/3 streams · {rows.length} events {open ? "▾" : "▸"}
+          </span>
+        </button>
+        <button
+          className="activity-expand"
+          onClick={onToggleExpanded}
+          title={expanded ? "Shrink panel" : "Expand panel"}
+        >
+          {expanded ? "⤡" : "⤢"}
+        </button>
+      </div>
       {open && (
         <div className="activity-feed" ref={feedRef}>
           {rows.length === 0 && (
@@ -138,7 +155,8 @@ export default function ActivityPanel({ enabled }: { enabled: boolean }) {
             </div>
           )}
           {rows.map(({ key, event }) => {
-            const style = KIND_STYLE[event.kind] ?? { icon: "•", label: event.kind };
+            const style =
+              KIND_STYLE[event.kind] ?? { icon: "•", label: event.kind };
             const time = new Date(event.ts * 1000).toLocaleTimeString();
             return (
               <div className={`activity-row kind-${event.kind}`} key={key}>

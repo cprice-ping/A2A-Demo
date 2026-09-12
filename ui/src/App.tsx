@@ -16,6 +16,7 @@ function ActionRegistry() {
 export default function App() {
   const agents = useMemo(() => makeAgents(), []);
   const [agentId, setAgentId] = useState<AgentId>("flight");
+  const [activityExpanded, setActivityExpanded] = useState(false);
 
   return (
     <div className="app">
@@ -24,6 +25,40 @@ export default function App() {
         <AgentTabs agentId={agentId} onSwitch={setAgentId} />
       </header>
       <main className="app-main">
+        <aside
+          className={`activity-pane ${activityExpanded ? "expanded" : ""}`}
+        >
+          <ActivityPanel
+            enabled
+            expanded={activityExpanded}
+            onToggleExpanded={() => setActivityExpanded((v) => !v)}
+          />
+          {!activityExpanded && (
+            <div className="info-pane-inner">
+              <h2>How this works</h2>
+              <ul>
+                <li>
+                  <strong>Flight/Hotel agents</strong> each run their own mock REST
+                  API, MCP server, and ADK agent — exposed over both A2A (agent
+                  card + JSON-RPC) and AG-UI (this chat).
+                </li>
+                <li>
+                  <strong>Travel Planner</strong> is a host agent: it discovers the
+                  specialists via their agent cards and delegates over A2A.
+                </li>
+                <li>
+                  Cards in the chat are <strong>AG-UI frontend tools</strong> — the
+                  agent calls <code>render_*_search</code> /{" "}
+                  <code>render_*_booking</code>, and this UI renders them.
+                </li>
+              </ul>
+              <p className="muted">
+                🤝/📡 rows show A2A traffic in and out of each agent; 🔧 rows are
+                MCP tool calls the LLM made. ⤢ expands the log.
+              </p>
+            </div>
+          )}
+        </aside>
         <section className="chat-pane">
           <CopilotKit
             selfManagedAgents={agents}
@@ -42,30 +77,6 @@ export default function App() {
             />
           </CopilotKit>
         </section>
-        <aside className="info-pane">
-          <ActivityPanel enabled />
-          <h2>How this works</h2>
-          <ul>
-            <li>
-              <strong>Flight/Hotel agents</strong> each run their own mock REST API,
-              MCP server, and ADK agent — exposed over both A2A (agent card +
-              JSON-RPC) and AG-UI (this chat).
-            </li>
-            <li>
-              <strong>Travel Planner</strong> is a host agent: it discovers the
-              specialists via their agent cards and delegates over A2A.
-            </li>
-            <li>
-              Cards in the chat are <strong>AG-UI frontend tools</strong> — the
-              agent calls <code>render_*_search</code> / <code>render_*_booking</code>
-              , and this UI renders them.
-            </li>
-          </ul>
-          <p className="muted">
-            🤝/📡 rows show A2A traffic in and out of each agent; 🔧 rows are
-            MCP tool calls the LLM made.
-          </p>
-        </aside>
       </main>
     </div>
   );
