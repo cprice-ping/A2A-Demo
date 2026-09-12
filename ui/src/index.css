@@ -1,0 +1,238 @@
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --ink: #1a2233;
+  --muted: #6b7280;
+  --accent: #2563eb;
+  --accent-soft: #eff6ff;
+  --border: #e5e7eb;
+  --green: #047857;
+  --green-soft: #ecfdf5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header h1 {
+  font-size: 18px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.app-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-pane {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.info-pane {
+  width: 300px;
+  padding: 20px;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-y: auto;
+}
+
+.info-pane h2 {
+  font-size: 14px;
+  margin-top: 0;
+}
+
+.info-pane ul {
+  padding-left: 18px;
+}
+
+/* Agent tabs */
+.agent-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.agent-tab {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.agent-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* Widget cards */
+.widget-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 12px 14px;
+  margin: 8px 0;
+  max-width: 480px;
+  font-size: 13px;
+}
+
+.widget-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.widget-sub {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.widget-loading,
+.widget-empty {
+  color: var(--muted);
+  padding: 6px 0;
+}
+
+.widget-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.widget-table th,
+.widget-table td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.widget-table th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.widget-table td.num,
+.widget-table th.num {
+  text-align: right;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Hotel list */
+.hotel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hotel-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+
+.hotel-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.hotel-name {
+  font-weight: 600;
+  display: block;
+}
+
+.hotel-desc {
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.hotel-price {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.amenities {
+  margin-top: 4px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+}
+
+/* Booking card */
+.widget-card.booking.confirmed {
+  border-color: var(--green);
+  background: var(--green-soft);
+}
+
+.booking-id {
+  font-family: ui-monospace, monospace;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.kv {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.kv td {
+  padding: 2px 0;
+}
+
+.kv .k {
+  color: var(--muted);
+  width: 90px;
+}
+
+@media (max-width: 900px) {
+  .info-pane {
+    display: none;
+  }
+}
