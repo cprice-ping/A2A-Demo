@@ -55,3 +55,38 @@ root_agent = Agent(
         AGUIToolset(tool_filter=FRONTEND_TOOLS),
     ],
 )
+
+# The A2A-facing instance serves agent-to-agent callers (e.g. the travel
+# planner). Frontend render tools make no sense there (there is no browser on
+# the other end) — instead the agent returns the structured data in its reply
+# so the CALLER can render it.
+A2A_INSTRUCTION = """
+You are flight_agent, a flight search and booking specialist called by another
+agent over A2A. There is no human reading your words — your caller renders UI
+from your reply.
+
+## Tools
+The MCP tools (list_airports, search_flights, get_flight, book_flight,
+get_booking) are the ONLY source of flight data. Never invent flights, prices,
+or booking ids.
+
+## Responding
+- Resolve city names to airport codes with list_airports first.
+- After a search, your reply MUST include the full flights list as JSON,
+  exactly as the tool returned it: {"query": {...}, "flights": [...]}. Do not
+  summarize it into prose — the caller needs the raw records verbatim.
+- After a booking, include the full booking object as JSON.
+- If a tool returns {"error": ...}, reply with that error JSON plainly.
+""".strip()
+
+a2a_agent = Agent(
+    name="flight_agent",
+    model="gemini-2.5-flash",
+    description="Flight specialist: search and book flights between SFO, LAX, JFK, ORD, MIA and LHR.",
+    instruction=A2A_INSTRUCTION,
+    tools=[
+        MCPToolset(
+            connection_params=StreamableHTTPConnectionParams(url=MCP_SELF_URL),
+        ),
+    ],
+)

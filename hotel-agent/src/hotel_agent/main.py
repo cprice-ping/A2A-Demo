@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
             yield
 
 
-app = FastAPI(title="flight-agent", lifespan=lifespan)
+app = FastAPI(title="hotel-agent", lifespan=lifespan)
 
 # Parent-level CORS covers all mounted sub-apps (they execute inside the parent's
 # middleware stack). Never combine allow_credentials with a wildcard origin.
@@ -62,9 +62,6 @@ app.mount("/mcp", mcp_app)
 app.mount("/a2a", a2a_app)
 add_adk_fastapi_endpoint(
     app,
-    ADKAgent(adk_agent=root_agent, app_name="flight_agent", user_id="demo-user"),
+    ADKAgent(adk_agent=root_agent, app_name="hotel_agent", user_id="demo-user"),
     path="/agui",
 )
-
-# Re-exported for tests that exercise the AG-UI surface directly.
-__all__ = ["app", "root_agent", "a2a_agent"]

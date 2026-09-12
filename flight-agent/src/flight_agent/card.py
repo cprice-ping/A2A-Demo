@@ -13,8 +13,10 @@ from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill
 
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8080")
 
-A2A_BASE = f"{PUBLIC_BASE_URL}/a2a"
-CARD_URL = f"{A2A_BASE}/.well-known/agent-card.json"
+# Trailing slash matters: the A2A JSON-RPC route is mounted at "/a2a/" and
+# a2a clients do not follow the 307 redirect from "/a2a".
+A2A_BASE = f"{PUBLIC_BASE_URL}/a2a/"
+CARD_URL = f"{PUBLIC_BASE_URL}/a2a/.well-known/agent-card.json"
 
 SKILLS = [
     AgentSkill(

@@ -6,6 +6,7 @@ import os
 
 from google.adk.agents import Agent
 from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+from google.adk.tools.agent_tool import AgentTool
 from ag_ui_adk import AGUIToolset
 
 FLIGHT_CARD_URL = os.environ["FLIGHT_AGENT_CARD_URL"]
@@ -18,45 +19,53 @@ RENDER_TOOLS = [
     "render_hotel_booking",
 ]
 
-flight_agent = RemoteA2aAgent(
-    name="flight_agent",
+flight_specialist = RemoteA2aAgent(
+    name="flight_specialist",
     description=(
-        "Flight specialist: searches and books flights between SFO, LAX, JFK, "
-        "ORD, MIA and LHR. Delegate ALL flight search and booking here."
+        "Searches and books flights between SFO, LAX, JFK, ORD, MIA and LHR."
     ),
     agent_card=FLIGHT_CARD_URL,
     use_legacy=False,
 )
 
-hotel_agent = RemoteA2aAgent(
-    name="hotel_agent",
-    description=(
-        "Hotel specialist: searches and books hotels by city and stay dates. "
-        "Delegate ALL hotel search and booking here."
-    ),
+hotel_specialist = RemoteA2aAgent(
+    name="hotel_specialist",
+    description="Searches and books hotels by city and stay dates.",
     agent_card=HOTEL_CARD_URL,
     use_legacy=False,
 )
 
+# AgentTool keeps the planner in control of the loop: it CALLS each specialist
+# like a function (one request -> structured result back) instead of using
+# LLM-driven transfers, which let one specialist absorb the whole conversation.
+flight_tool = AgentTool(agent=flight_specialist)
+hotel_tool = AgentTool(agent=hotel_specialist)
+
 INSTRUCTION = """
-You are travel_planner, a trip planning coordinator. You do NOT handle flights
-or hotels yourself — you delegate to two specialists over A2A:
-- flight_agent: flight search and booking (airports SFO, LAX, JFK, ORD, MIA, LHR)
-- hotel_agent: hotel search and booking by city and dates
+You are travel_planner, a trip planning coordinator. You do NOT search flights
+or hotels yourself — you have two specialist TOOLS (each one is a remote agent
+reached over the A2A protocol):
+
+- flight_specialist: flight search and booking (airports SFO, LAX, JFK, ORD, MIA, LHR)
+- hotel_specialist: hotel search and booking by city and dates
 
 ## Delegation rules
-- Decompose the trip request: which flights are needed, which lodging.
-- Send flight requests to flight_agent and hotel requests to hotel_agent.
-  They return structured results — pass them through VERBATIM, never invent
+- Decompose the user's trip into legs. Call flight_specialist for the flight
+  leg and hotel_specialist for the lodging leg — as separate tool calls, each
+  asking for exactly that leg ("search flights SFO->JFK 2026-09-20, 2
+  passengers" — nothing about hotels in the flight call).
+- A trip request needs BOTH calls before you reply. After the flight results
+  come back, call hotel_specialist next.
+- Tool results are structured data — pass them through VERBATIM, never invent
   or modify flights, hotels, prices, or booking ids.
-- To BOOK, confirm the specific choice with the user first, then delegate the
-  booking request to the right specialist and report its confirmation verbatim.
+- To BOOK, confirm the specific choice with the user first, then call the
+  specialist's booking request and report its confirmation verbatim.
 - Coordinate dates yourself: hotel check-in should match the arrival date of
   the outbound flight, check-out after the return flight. If the user gives a
-  date range, derive the missing dates rather than asking again.
+  length of stay, derive dates rather than asking again.
 
 ## Rendering results
-After receiving results from a specialist, call the matching render_* tool so
+After each specialist's results come back, call the matching render_* tool so
 the UI shows a card — render_flight_search / render_flight_booking with flight
 data, render_hotel_search / render_hotel_booking with hotel data. Pass the
 specialist's data through VERBATIM. In your text, one short sentence; never
@@ -71,6 +80,5 @@ root_agent = Agent(
     model="gemini-2.5-flash",
     description="Plans trips by delegating to flight and hotel specialist agents.",
     instruction=INSTRUCTION,
-    sub_agents=[flight_agent, hotel_agent],
-    tools=[AGUIToolset(tool_filter=RENDER_TOOLS)],
+    tools=[flight_tool, hotel_tool, AGUIToolset(tool_filter=RENDER_TOOLS)],
 )
