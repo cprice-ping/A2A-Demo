@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastmcp import FastMCP
 
 from . import store
+from . import auth as auth_module
 from .api import data
 
 mcp = FastMCP("hotels")
@@ -49,12 +50,22 @@ def get_hotel(hotel_id: str) -> dict:
 
 @mcp.tool
 def book_hotel(hotel_id: str, check_in: str, check_out: str, guests: int = 1) -> dict:
-    """Book a hotel by hotel_id for a date range. Returns {booking: {...}}."""
+    """Book a hotel by hotel_id for a date range. Returns {booking: {...}}.
+
+    When the call is authenticated (A2A identity present), the loyalty
+    program is applied: member tier discount on the total.
+    """
     hotel = data.get_hotel(hotel_id)
     if not hotel:
         return {"error": f"Unknown hotel_id {hotel_id!r}"}
+    identity = auth_module.current_identity.get()
+    loyalty = None
+    if identity and identity.get("sub"):
+        from .loyalty import lookup_loyalty
+
+        loyalty = lookup_loyalty(identity["sub"])
     try:
-        booking = store.create_hotel_booking(hotel, check_in, check_out, guests)
+        booking = store.create_hotel_booking(hotel, check_in, check_out, guests, loyalty=loyalty)
     except ValueError as e:
         return {"error": str(e)}
     return {"booking": booking}

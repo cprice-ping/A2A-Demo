@@ -12,6 +12,9 @@ from a2a.types import (
     ClientCredentialsOAuthFlow,
     OAuth2SecurityScheme,
     OAuthFlows,
+    SecurityRequirement,
+    SecurityScheme,
+    StringList,
 )
 
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8081")
@@ -54,16 +57,18 @@ def build_card() -> AgentCard:
     security = None
     if HOTELS_ISSUER:
         security_schemes = {
-            "pingone": OAuth2SecurityScheme(
-                flows=OAuthFlows(
-                    client_credentials=ClientCredentialsOAuthFlow(
-                        token_url=f"{HOTELS_ISSUER}/token",
-                        scopes={"a2a:book": "Search and book hotels"},
+            "pingone": SecurityScheme(
+                oauth2_security_scheme=OAuth2SecurityScheme(
+                    flows=OAuthFlows(
+                        client_credentials=ClientCredentialsOAuthFlow(
+                            token_url=f"{HOTELS_ISSUER}/token",
+                            scopes={"a2a:book": "Search and book hotels"},
+                        )
                     )
                 )
             )
         }
-        security = [{"pingone": ["a2a:book"]}]
+        security = [SecurityRequirement(schemes={"pingone": StringList(list=["a2a:book"])})]
 
     return AgentCard(
         name="hotel_agent",

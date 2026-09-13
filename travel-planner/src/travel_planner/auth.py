@@ -85,7 +85,7 @@ def validate_planner_token(token: str) -> dict:
     raise pyjwt.InvalidTokenError(f"kid {kid!r} not in planner JWKS")
 
 
-def extract_user_token(request, input_data):
+async def extract_user_token(request, input_data):
     """extract_state_from_request hook: validate + stash the user's token.
 
     Returns a small state dict (planner_user sub) the agent can reference;

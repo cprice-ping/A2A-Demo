@@ -45,6 +45,58 @@ app.mount("/a2a", a2a_app)
 app.add_middleware(ProtocolTraceMiddleware, source="travel-planner")
 
 app.include_router(trace_router("travel-planner"), prefix="/api")
+
+# ---- Planner Profile API: the loyalty-linkage source specialists pull from ----
+#
+# Loyalty programs are application data, not identity claims: the planner
+# account holds the user's linked memberships and serves them to OTHER
+# domains' agents (flight/hotel) through this endpoint. Access requires a
+# PingOne token issued by the PLANNER tenant with the loyalty:read scope
+# (the loyalty-lookup client) — validated against the planner JWKS.
+from fastapi import APIRouter, Header, HTTPException
+
+import jwt as pyjwt
+
+from .auth import PLANNER_ISSUER, _planner_jwks
+
+# Demo account data: the human linked their loyalty memberships here.
+LINKED_LOYALTY = {
+    "chris@example.com": [
+        {"program": "flights", "member_id": "SK-123456", "tier": "GOLD"},
+        {"program": "hotels", "member_id": "HB-789", "tier": "SILVER"},
+    ],
+}
+
+profile_router = APIRouter()
+
+
+@profile_router.get("/profile/loyalty")
+def get_loyalty(authorization: str = Header(default="")):
+    if not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, "bearer token required")
+    token = authorization[7:].strip()
+    try:
+        headers = pyjwt.get_unverified_header(token)
+        kid = headers["kid"]
+        key = next(k for k in _planner_jwks()["keys"] if k["kid"] == kid)
+        claims = pyjwt.decode(
+            token,
+            pyjwt.PyJWK.from_dict(key).key,
+            algorithms=[headers["alg"]],
+            issuer=PLANNER_ISSUER,
+            leeway=30,
+        )
+    except Exception as exc:
+        raise HTTPException(401, f"invalid token: {exc}") from exc
+    scope = claims.get("scope", "")
+    if "loyalty:read" not in scope:
+        raise HTTPException(403, "loyalty:read scope required")
+    subject = claims.get("username") or claims.get("email") or claims.get("sub")
+    return {"subject": subject, "linked_loyalty": LINKED_LOYALTY.get(subject, [])}
+
+
+app.include_router(profile_router, prefix="/api")
+
 from .auth import extract_user_token  # noqa: E402
 
 add_adk_fastapi_endpoint(

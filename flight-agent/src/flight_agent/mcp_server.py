@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastmcp import FastMCP
 
 from . import store
+from . import auth as auth_module
 from .api import data
 
 mcp = FastMCP("flights")
@@ -47,13 +48,23 @@ def get_flight(flight_id: str) -> dict:
 
 @mcp.tool
 def book_flight(flight_id: str, passengers: int = 1) -> dict:
-    """Book a flight by flight_id for N passengers. Returns {booking: {...}}."""
+    """Book a flight by flight_id for N passengers. Returns {booking: {...}}.
+
+    When the call is authenticated (A2A identity present), the loyalty
+    program is applied: member tier discount on the total.
+    """
     flight = data.get_flight(flight_id)
     if not flight:
         return {"error": f"Unknown flight_id {flight_id!r}"}
     if not 1 <= passengers <= 9:
         return {"error": "passengers must be between 1 and 9"}
-    booking = store.create_flight_booking(flight, passengers)
+    identity = auth_module.current_identity.get()
+    loyalty = None
+    if identity and identity.get("sub"):
+        from .loyalty import lookup_loyalty
+
+        loyalty = lookup_loyalty(identity["sub"])
+    booking = store.create_flight_booking(flight, passengers, loyalty=loyalty)
     return {"booking": booking}
 
 

@@ -18,6 +18,7 @@ Two pieces:
 
 from __future__ import annotations
 
+import contextvars
 import os
 import time
 from typing import Any
@@ -27,6 +28,12 @@ import jwt as pyjwt
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .trace import record
+
+# Validated identity for the CURRENT A2A invocation, read by MCP tools via
+# the loyalty layer. Set from the identity converter (call_context.state).
+current_identity: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
+    "current_identity", default=None
+)
 
 # This environment's PingOne config (compose env)
 ISSUER = os.environ.get("P1_FLIGHTS_ISSUER", "")
@@ -175,11 +182,13 @@ def identity_request_converter(request: Any, part_converter: Any) -> Any:
     if call_context and getattr(call_context, "state", None):
         auth_claims = call_context.state.get("auth")
     if auth_claims:
-        run_request.state_delta = {
-            "user_identity": {
-                "sub": auth_claims.get("sub", ""),
-                "actor": (auth_claims.get("act") or {}).get("sub", ""),
-                "scope": auth_claims.get("scope", ""),
-            }
+        identity = {
+            "sub": auth_claims.get("sub", ""),
+            "actor": (auth_claims.get("act") or {}).get("sub", ""),
+            "scope": auth_claims.get("scope", ""),
         }
+        run_request.state_delta = {"user_identity": identity}
+        current_identity.set(identity)
+    else:
+        current_identity.set(None)
     return run_request
