@@ -42,6 +42,11 @@ const KIND_STYLE: Record<string, { icon: string; label: string }> = {
   "mcp.rpc": { icon: "🔧", label: "MCP rpc" },
   "mcp.setup": { icon: "🔌", label: "MCP session" },
   "agui.run": { icon: "💬", label: "Chat run" },
+  "auth.user": { icon: "🪪", label: "User token" },
+  "auth.token_exchange": { icon: "🔑", label: "Token exchange" },
+  "auth.token_exchange_failed": { icon: "🔑", label: "Exchange failed" },
+  "auth.accepted": { icon: "🛡️", label: "Auth accepted" },
+  "auth.rejected": { icon: "🛡️", label: "Auth rejected" },
   "trace.complete": { icon: "✓", label: "" },
 };
 

@@ -2,11 +2,13 @@ import { useMemo, useState } from "react";
 import { CopilotKit } from "@copilotkit/react-core";
 import { CopilotSidebar } from "@copilotkit/react-ui";
 import { makeAgents, AGENT_META, type AgentId } from "./agents";
+import { useAuth } from "./auth";
 import { useFlightActions, useHotelActions } from "./actions";
 import AgentTabs from "./components/AgentTabs";
 import ActivityPanel from "./components/ActivityPanel";
 import ArchitectureDiagram from "./components/ArchitectureDiagram";
 import CardStrip, { AgentCardModal } from "./components/CardStrip";
+import IdentityPanel from "./components/IdentityPanel";
 import "@copilotkit/react-ui/styles.css";
 
 function ActionRegistry() {
@@ -16,7 +18,10 @@ function ActionRegistry() {
 }
 
 export default function App() {
-  const agents = useMemo(() => makeAgents(), []);
+  const { token } = useAuth();
+  // Agents re-created when the auth token changes so the planner agent
+  // carries the fresh Authorization header.
+  const agents = useMemo(() => makeAgents(token ?? undefined), [token]);
   const [agentId, setAgentId] = useState<AgentId>("flight");
   const [activityExpanded, setActivityExpanded] = useState(false);
   const [showArch, setShowArch] = useState(false);
@@ -27,6 +32,7 @@ export default function App() {
       <header className="app-header">
         <h1>A2A Travel Demo</h1>
         <AgentTabs agentId={agentId} onSwitch={setAgentId} />
+        <IdentityPanel />
       </header>
       {showArch && <ArchitectureDiagram onClose={() => setShowArch(false)} />}
       {showCard && (

@@ -38,6 +38,10 @@ export default function BookingCard({
           ["Guests", String(booking.guests ?? 1)],
         ];
 
+  const loyalty = booking.loyalty as
+    | { member_id?: string; tier?: string; discount_pct?: number }
+    | undefined;
+
   return (
     <div className="widget-card booking confirmed">
       <div className="widget-title">
@@ -52,6 +56,16 @@ export default function BookingCard({
               <td>{v}</td>
             </tr>
           ))}
+          {loyalty && (
+            <tr>
+              <td className="k">Loyalty</td>
+              <td>
+                <span className="chip">{loyalty.tier}</span>{" "}
+                {loyalty.member_id}
+                {loyalty.discount_pct ? ` · −${loyalty.discount_pct}%` : ""}
+              </td>
+            </tr>
+          )}
           <tr>
             <td className="k">Total</td>
             <td>

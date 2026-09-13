@@ -36,7 +36,7 @@ function url(envVar: string, fallback: string): string {
   return fallback;
 }
 
-export function makeAgents(): Record<AgentId, HttpAgent> {
+export function makeAgents(authToken?: string): Record<AgentId, HttpAgent> {
   return {
     flight: new HttpAgent({
       url: url("flightAgent", "http://localhost:8080/agui"),
@@ -46,6 +46,9 @@ export function makeAgents(): Record<AgentId, HttpAgent> {
     }),
     planner: new HttpAgent({
       url: url("plannerAgent", "http://localhost:8082/agui"),
+      // The human's planner-tenant PingOne token travels on every /agui
+      // call; the planner validates it and exchanges it at specialists.
+      ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {}),
     }),
   };
 }
