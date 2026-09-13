@@ -85,7 +85,36 @@ Everything is driven by issuer URLs + client IDs/secrets:
    discovery is standard); the planner exchanges at whatever issuer the
    target config names. No code changes.
 
-## Honest limitations (demo scope)
+## Production evolution: workload-identity actors via TokenExchange-AS
+
+In this demo the actor credential is a PingOne client (CC secret), and the
+exchange happens **at the specialist's PingOne tenant** — possible because
+all three environments are in one org (first-party cross-environment TE).
+
+When the agents deploy for real, the actor token becomes the **workload
+identity** of the platform the agent runs on:
+
+| Agent | Deployment | Actor token |
+|---|---|---|
+| hotel-agent | k8s (kind → real cluster) | projected ServiceAccount token / EKS Pod Identity JWT |
+| flight-agent | Cloud Run | Google-issued identity token (`accounts.google.com`) |
+
+PingOne does not support third-party token exchange (subject from a
+non-PingOne / non-org issuer), so the exchange moves to
+**[TokenExchange-AS](../TokenExchange-AS/)** — the standalone AS that:
+
+- validates ANY JWT actor by per-token issuer discovery (k8s SA, Google,
+  PingOne — same code path; actors require only `exp`/`iat`),
+- keeps the same claim semantics (`sub` = human from the subject token,
+  `act.sub` = workload identity, nested `act` chains for follow-on
+  exchanges),
+- consults PingOne Authorize for the delegation decision (P1AZ policy),
+- mints the downstream specialist-audience token with its own JWKS.
+
+The agent-side code does not change shape: `auth.py`'s exchange call just
+posts to the AS's `/as/token` instead of the specialist tenant's, and the
+specialist middleware still validates a token minted about *its* domain.
+Trust stays pairwise and lives in IdP/AS config — never in agent code.
 
 - Loyalty data lives in the planner agent's profile store and specialist
   member stores, not in PingOne custom user attributes (custom schema
