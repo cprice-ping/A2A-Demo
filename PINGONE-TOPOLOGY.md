@@ -24,18 +24,33 @@ referenced from `.env` (never committed).
 
 ## Applications
 
+Per-domain model — every specialist environment hosts BOTH a person-login
+client (local, direct use of the domain) and an A2A bridge client (delegated
+use from the planner):
+
 | Env | App | Client ID | Type / grants | Purpose |
 |---|---|---|---|---|
 | Planner | `travel-ui` | `a553fbcd-a0c7-4291-b1f6-f1667147e8c1` | WEB_APP · AUTH_CODE, PKCE S256 REQUIRED, **public** (token auth = NONE) | The chat UI's login; redirect `http://localhost:5173/auth/callback` |
-| Flights | `travel-planner` | `da2ff827-114a-448c-92ae-5297e9fcdb9a` | WEB_APP · AUTH_CODE + CLIENT_CREDENTIALS + **TOKEN_EXCHANGE** | The planner agent's actor/subject-exchange client at the flight tenant |
-| Hotels | `travel-planner` | `e629c4f9-4533-4c5c-a7bb-78e32620e000` | WEB_APP · same grants | Same, hotel tenant |
-| Planner | `loyalty-lookup` | `30ef8221-9da2-42d5-8556-9e40ca53e8ea` | WEB_APP · CLIENT_CREDENTIALS | Specialists' client for the planner profile API |
+| Planner | `loyalty-lookup` | `0742209d-5092-42c1-958d-4bba38b13720` | WORKER · **CLIENT_CREDENTIALS only** | Specialists' client for the planner profile API |
+| Flights | `flights-web` | `6dccbd2a-a4a1-4617-8dd9-60643876607c` | WEB_APP · AUTH_CODE, PKCE S256 REQUIRED, **public** | Person login LOCAL to the flight domain; redirect `http://localhost:8080/auth/callback` |
+| Flights | `a2a-bridge` | `46f0882e-40ce-43da-8c24-c08826718f08` | WORKER · CLIENT_CREDENTIALS + **TOKEN_EXCHANGE** | The planner agent's actor/exchange client at the flight tenant |
+| Hotels | `hotels-web` | `0e587769-2193-4756-a31f-174254da4fbb` | WEB_APP · AUTH_CODE, PKCE S256 REQUIRED, **public** | Person login LOCAL to the hotel domain; redirect `http://localhost:8081/auth/callback` |
+| Hotels | `a2a-bridge` | `7db6a04b-9a07-4661-99b9-5983973b582f` | WORKER · CLIENT_CREDENTIALS + **TOKEN_EXCHANGE** | Same, hotel tenant |
 
-> **Why WEB_APP, not WORKER:** PingOne restricts WORKER applications to grants
-> on the built-in `openid` resource only — a WORKER cannot be granted custom
-> resources/scopes. Web apps can carry `CLIENT_CREDENTIALS` +
-> `TOKEN_EXCHANGE` and hold custom-resource grants, so the service clients
-> are web apps hidden from the application portal.
+Two identity flows into each specialist, both ending in a token about THE
+PERSON minted by that domain's own tenant:
+
+1. **Local person login** — direct PKCE at `flights-web`/`hotels-web`; the
+   token is native to the domain (no delegation, no act claim).
+2. **A2A delegation** — planner exchanges the person's planner token at the
+   domain tenant via `a2a-bridge`; the minted token carries
+   `act={sub: a2a-bridge}` distinguishing delegated from direct.
+
+> **Type note:** exchange/lookup clients are WORKERs (CC-only, no
+> AUTHORIZATION_CODE forced onto them — the earlier web-app workaround is
+> gone). PingOne still restricts WORKER custom-resource grants; whether the
+> bridge needs a scope grant at all (audience-param TE) is settled in the
+> token-exchange spike.
 
 ## Resources & scopes
 
