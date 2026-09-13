@@ -21,3 +21,4 @@ adc.json
 .idea/
 .vscode/
 *.tsbuildinfo
+*.swp

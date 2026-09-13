@@ -60,8 +60,9 @@ PERSON minted by that domain's own tenant:
 | Hotels | A2A Hotel API (`b25de1a3-…`) | `http://localhost:8081` | `a2a:book` (`d9cc7889-…`) |
 | Planner | Planner Profile API (`9f9793ec-…`) | `planner-profile-api` | `loyalty:read` (`948cb9fd-…`) |
 
-Grants: each `travel-planner` app → its own API resource/scope;
-`loyalty-lookup` → Planner Profile API/`loyalty:read`.
+Grants: each `a2a-bridge` app → its domain's API resource/scope (pending
+the WORKER-constraint resolution from the spike); `loyalty-lookup` →
+Planner Profile API/`loyalty:read`.
 
 ## The identity flow
 
@@ -85,8 +86,8 @@ Specialist loyalty: CC token @planner (loyalty:read) → GET planner
 The MCP server cannot read/write client secrets or user passwords. Set once
 in the PingOne console:
 
-- `P1_FLIGHTS_PLANNER_CLIENT_SECRET` (Flights env → travel-planner app)
-- `P1_HOTELS_PLANNER_CLIENT_SECRET` (Hotels env → travel-planner app)
+- `P1_FLIGHTS_BRIDGE_CLIENT_SECRET` (Flights env → a2a-bridge app)
+- `P1_HOTELS_BRIDGE_CLIENT_SECRET` (Hotels env → a2a-bridge app)
 - `P1_LOYALTY_CLIENT_SECRET` (Planner env → loyalty-lookup app)
 - `DEMO_USER_PASSWORD` — same password for chris@example.com in all three envs
 
