@@ -78,6 +78,12 @@ docker compose up --build
 
 Same ports as above. The flight agent and planner mount your `application_default_credentials.json` — no key; the hotel agent takes `GOOGLE_API_KEY`.
 
+## Identity (PingOne)
+
+The demo is identity-aware: three real PingOne sandbox tenants (`A2A - Planner`, `A2A - Flights`, `A2A - Hotels`) issue the human's tokens, gate specialist `/a2a` endpoints, and carry the loyalty story — the planner delegates over A2A via **RFC 8693 token exchange**, and specialists **pull** loyalty from the planner's OAuth-protected profile API to apply tier discounts. Full topology, app/client IDs, and the console-managed secret list: **[PINGONE-TOPOLOGY.md](PINGONE-TOPOLOGY.md)**.
+
+Set `AUTH_REQUIRED=true` in `.env` to force the identity path (the anonymous demo keeps working with the default `false`).
+
 ## Deployment
 
 ### Flight agent → Cloud Run (Vertex AI backend, no API key)
