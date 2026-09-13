@@ -29,11 +29,13 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .trace import record
 
-# Validated identity for the CURRENT A2A invocation, read by MCP tools via
-# the loyalty layer. Set from the identity converter (call_context.state).
+# Validated identity + the raw Bearer token for the CURRENT A2A invocation,
+# read by MCP tools via the loyalty layer (the loyalty pull re-exchanges the
+# raw token at the planner tenant). Set from the identity converter.
 current_identity: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
     "current_identity", default=None
 )
+current_token: contextvars.ContextVar[str] = contextvars.ContextVar("current_token", default="")
 
 # This environment's PingOne config (compose env)
 ISSUER = os.environ.get("P1_FLIGHTS_ISSUER", "")
@@ -130,6 +132,14 @@ class BearerAuthMiddleware:
             },
         )
         scope["auth"] = claims
+        current_identity.set(
+            {
+                "sub": claims.get("sub", ""),
+                "actor": (claims.get("act") or {}).get("sub", ""),
+                "scope": claims.get("scope", ""),
+            }
+        )
+        current_token.set(token)
         await self.app(scope, receive, send)
 
     @staticmethod

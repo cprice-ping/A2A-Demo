@@ -51,13 +51,16 @@ app.include_router(trace_router("travel-planner"), prefix="/api")
 # Loyalty programs are application data, not identity claims: the planner
 # account holds the user's linked memberships and serves them to OTHER
 # domains' agents (flight/hotel) through this endpoint. Access requires a
-# PingOne token issued by the PLANNER tenant with the loyalty:read scope
-# (the loyalty-lookup client) — validated against the planner JWKS.
+# PERSON-scoped token minted by the PLANNER tenant with the loyalty:read
+# scope and audience planner-profile-api — specialists obtain it by
+# exchanging the request's validated token at the planner tenant (their
+# a2a-bridge is the actor). A bare client-credentials token is refused:
+# it names no human, so there is nothing to look up.
 from fastapi import APIRouter, Header, HTTPException
 
 import jwt as pyjwt
 
-from .auth import PLANNER_ISSUER, _planner_jwks
+from .auth import PLANNER_ISSUER, PLANNER_AUDIENCE, _planner_jwks, record
 
 # Demo account data: the human linked their loyalty memberships here.
 LINKED_LOYALTY = {
@@ -84,6 +87,7 @@ def get_loyalty(authorization: str = Header(default="")):
             pyjwt.PyJWK.from_dict(key).key,
             algorithms=[headers["alg"]],
             issuer=PLANNER_ISSUER,
+            audience=PLANNER_AUDIENCE or None,
             leeway=30,
         )
     except Exception as exc:
@@ -91,7 +95,11 @@ def get_loyalty(authorization: str = Header(default="")):
     scope = claims.get("scope", "")
     if "loyalty:read" not in scope:
         raise HTTPException(403, "loyalty:read scope required")
-    subject = claims.get("username") or claims.get("email") or claims.get("sub")
+    # Person-scoped only: a client-credentials token has no user claim.
+    subject = claims.get("username") or claims.get("email") or claims.get("preferred_username")
+    if not subject or subject == claims.get("client_id"):
+        raise HTTPException(403, "person-scoped token required (no user claim)")
+    record("travel-planner", "auth.loyalty_pulled", {"subject": subject})
     return {"subject": subject, "linked_loyalty": LINKED_LOYALTY.get(subject, [])}
 
 

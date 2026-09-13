@@ -31,7 +31,7 @@ use from the planner):
 | Env | App | Client ID | Type / grants | Purpose |
 |---|---|---|---|---|
 | Planner | `travel-ui` | `a553fbcd-a0c7-4291-b1f6-f1667147e8c1` | WEB_APP · AUTH_CODE, PKCE S256 REQUIRED, **public** (token auth = NONE) | The chat UI's login; redirect `http://localhost:5173/auth/callback` |
-| Planner | `loyalty-lookup` | `0742209d-5092-42c1-958d-4bba38b13720` | WORKER · **CLIENT_CREDENTIALS only** | Specialists' client for the planner profile API |
+| Planner | `a2a-bridge` | `d297ea01-84df-4c5f-bd62-7cbfbb5279ae` | WORKER · CLIENT_CREDENTIALS + **TOKEN_EXCHANGE** | Specialists exchange here for person-scoped `loyalty:read` profile tokens |
 | Flights | `flights-web` | `6dccbd2a-a4a1-4617-8dd9-60643876607c` | WEB_APP · AUTH_CODE, PKCE S256 REQUIRED, **public** | Person login LOCAL to the flight domain; redirect `http://localhost:8080/auth/callback` |
 | Flights | `a2a-bridge` | `46f0882e-40ce-43da-8c24-c08826718f08` | WORKER · CLIENT_CREDENTIALS + **TOKEN_EXCHANGE** | The planner agent's actor/exchange client at the flight tenant |
 | Hotels | `hotels-web` | `0e587769-2193-4756-a31f-174254da4fbb` | WEB_APP · AUTH_CODE, PKCE S256 REQUIRED, **public** | Person login LOCAL to the hotel domain; redirect `http://localhost:8081/auth/callback` |
@@ -82,8 +82,10 @@ Planner ── per delegation: RFC 8693 at the TARGET tenant's /as/token
              aud=<specialist URL>, scope=a2a:book
 Specialist /a2a middleware: validates own tenant JWKS/iss/aud/act →
            identity into ADK session state (user_identity)
-Specialist loyalty: CC token @planner (loyalty:read) → GET planner
-           /api/profile/loyalty → match member → tier discount on booking
+Specialist loyalty: re-exchange the request's validated token at the
+           PLANNER tenant (a2a-bridge = actor, aud=planner-profile-api,
+           scope=loyalty:read) → GET planner /api/profile/loyalty with a
+           PERSON-scoped token → match member → tier discount on booking
 ```
 
 ## Console-managed values (in `.env`)
@@ -97,7 +99,7 @@ scope**; per user: **Users → chris → password**):
 |---|---|---|
 | Flights | a2a-bridge: copy client secret + map scope `a2a:book` (A2A Flight API) | `P1_FLIGHTS_BRIDGE_CLIENT_SECRET` |
 | Hotels | a2a-bridge: copy client secret + map scope `a2a:book` (A2A Hotel API) | `P1_HOTELS_BRIDGE_CLIENT_SECRET` |
-| Planner | loyalty-lookup: copy client secret + map scope `loyalty:read` (Planner Profile API) | `P1_LOYALTY_CLIENT_SECRET` |
+| Planner | a2a-bridge: copy client secret + map scope `loyalty:read` (Planner Profile API) | `P1_PLANNER_BRIDGE_CLIENT_SECRET` |
 | all 3 | chris@example.com: set password (same in each) | `DEMO_USER_PASSWORD` |
 
 ## Swapping in production PingOne / other IdPs

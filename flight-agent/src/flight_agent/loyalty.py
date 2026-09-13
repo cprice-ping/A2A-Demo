@@ -1,15 +1,22 @@
-"""Loyalty pull: resolve the authenticated human's membership in THIS program.
+"""Loyalty pull via a person-scoped token from the PLANNER tenant.
 
-The planner agent exposes its account's linked loyalty memberships at
-{PLANNER_PROFILE_URL} (planner /api/profile/loyalty), protected by the
-PLANNER tenant's PingOne: access requires a token with the loyalty:read
-scope — the loyalty-lookup client's client_credentials token.
+The planner tenant's a2a-bridge (CC + TOKEN_EXCHANGE) is registered for the
+Planner Profile API (audience planner-profile-api, scope loyalty:read).
+PingOne allows custom resources on TOKEN_EXCHANGE clients (not CC clients),
+so the person-scoped profile token is minted by EXCHANGING the caller's
+already-validated subject token at the planner tenant:
 
-This module:
-1. mints/caches the loyalty-lookup CC token at the planner tenant,
-2. pulls the planner user's linked memberships,
-3. matches THIS domain's program member in the local member store,
-4. returns {member_id, tier, discount_pct} | None.
+    POST planner-tenant /as/token
+      grant_type    = urn:ietf:params:oauth:grant-type:token-exchange
+      subject_token = <the delegated/local token this request arrived with>
+      actor_token   = a2a-bridge CC @ planner (the caller's client identity
+                      at the planner tenant)
+      audience      = planner-profile-api
+      scope         = loyalty:read
+
+The minted token is about THE PERSON (sub carried from the subject) and
+scoped to read exactly their loyalty linkage — stronger than a shared CC
+client token, which could never carry a custom scope or a user identity.
 """
 
 from __future__ import annotations
@@ -22,8 +29,10 @@ import httpx
 from .trace import record
 
 PLANNER_ISSUER = os.environ.get("P1_PLANNER_ISSUER", "")
-LOYALTY_CLIENT_ID = os.environ.get("P1_LOYALTY_CLIENT_ID", "")
-LOYALTY_CLIENT_SECRET = os.environ.get("P1_LOYALTY_CLIENT_SECRET", "")
+PLANNER_BRIDGE_CLIENT_ID = os.environ.get("P1_PLANNER_BRIDGE_CLIENT_ID", "")
+PLANNER_BRIDGE_CLIENT_SECRET = os.environ.get("P1_PLANNER_BRIDGE_CLIENT_SECRET", "")
+PROFILE_AUDIENCE = os.environ.get("P1_PROFILE_AUDIENCE", "planner-profile-api")
+PROFILE_SCOPE = os.environ.get("P1_PROFILE_SCOPE", "loyalty:read")
 PLANNER_PROFILE_URL = os.environ.get(
     "PLANNER_PROFILE_URL", "http://travel-planner:8080/api/profile/loyalty"
 )
@@ -33,21 +42,22 @@ MEMBERS = {
     "SK-123456": {"name": "Chris Price", "tier": "GOLD", "discount_pct": 10},
 }
 
-_token_cache: tuple[float, str] | None = None
+_actor_cache: tuple[float, str] | None = None
+_profile_token_cache: dict[str, tuple[float, str]] = {}
 
 
-def _cc_token() -> str | None:
-    """loyalty-lookup client_credentials token at the planner tenant."""
-    global _token_cache
-    if not LOYALTY_CLIENT_ID or not LOYALTY_CLIENT_SECRET or not PLANNER_ISSUER:
+def _actor_token() -> str | None:
+    """a2a-bridge client_credentials token at the planner tenant (actor)."""
+    global _actor_cache
+    if not PLANNER_BRIDGE_CLIENT_ID or not PLANNER_BRIDGE_CLIENT_SECRET or not PLANNER_ISSUER:
         return None
-    if _token_cache and _token_cache[0] > time.time():
-        return _token_cache[1]
+    if _actor_cache and _actor_cache[0] > time.time():
+        return _actor_cache[1]
     try:
         resp = httpx.post(
             f"{PLANNER_ISSUER}/token",
-            data={"grant_type": "client_credentials", "scope": "loyalty:read"},
-            auth=(LOYALTY_CLIENT_ID, LOYALTY_CLIENT_SECRET),
+            data={"grant_type": "client_credentials"},
+            auth=(PLANNER_BRIDGE_CLIENT_ID, PLANNER_BRIDGE_CLIENT_SECRET),
             timeout=15.0,
         )
         resp.raise_for_status()
@@ -55,19 +65,60 @@ def _cc_token() -> str | None:
         record("flight-agent", "auth.loyalty_failed", {"error": str(exc)})
         return None
     token = resp.json()["access_token"]
-    _token_cache = (time.time() + 300, token)
+    _actor_cache = (time.time() + 300, token)
     return token
 
 
-def lookup_loyalty(planner_subject: str) -> dict | None:
-    """Pull the planner account's linked memberships; match this program's."""
-    token = _cc_token()
-    if not token:
+def exchange_for_profile_token(subject_token: str) -> str | None:
+    """Exchange the request's validated token at the planner tenant for a
+    person-scoped loyalty:read profile token."""
+    if not subject_token:
+        return None
+    cache_key = subject_token[-32:]  # tail of the token, stable per subject
+    hit = _profile_token_cache.get(cache_key)
+    if hit and hit[0] > time.time():
+        return hit[1]
+    actor = _actor_token()
+    if not actor:
+        return None
+    try:
+        resp = httpx.post(
+            f"{PLANNER_ISSUER}/token",
+            data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+                "subject_token": subject_token,
+                "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                "actor_token": actor,
+                "actor_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                "audience": PROFILE_AUDIENCE,
+                "scope": PROFILE_SCOPE,
+            },
+            auth=(PLANNER_BRIDGE_CLIENT_ID, PLANNER_BRIDGE_CLIENT_SECRET),
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+    except Exception as exc:
+        record("flight-agent", "auth.loyalty_failed", {"error": str(exc)})
+        return None
+    token = resp.json()["access_token"]
+    _profile_token_cache[cache_key] = (time.time() + 240, token)
+    return token
+
+
+def lookup_loyalty(subject_token: str) -> dict | None:
+    """Pull THIS person's linked flight loyalty from the planner profile API.
+
+    subject_token is the validated token the current A2A request arrived
+    with (delegated or local) — re-exchanged at the planner tenant so the
+    profile API sees a token about THE PERSON, not a bare client.
+    """
+    profile_token = exchange_for_profile_token(subject_token)
+    if not profile_token:
         return None
     try:
         resp = httpx.get(
             PLANNER_PROFILE_URL,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {profile_token}"},
             timeout=15.0,
         )
         resp.raise_for_status()

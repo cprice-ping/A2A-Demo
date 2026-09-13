@@ -63,7 +63,7 @@ def book_hotel(hotel_id: str, check_in: str, check_out: str, guests: int = 1) ->
     if identity and identity.get("sub"):
         from .loyalty import lookup_loyalty
 
-        loyalty = lookup_loyalty(identity["sub"])
+        loyalty = lookup_loyalty(auth_module.current_token.get())
     try:
         booking = store.create_hotel_booking(hotel, check_in, check_out, guests, loyalty=loyalty)
     except ValueError as e:

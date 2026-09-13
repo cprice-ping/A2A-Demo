@@ -63,7 +63,7 @@ def book_flight(flight_id: str, passengers: int = 1) -> dict:
     if identity and identity.get("sub"):
         from .loyalty import lookup_loyalty
 
-        loyalty = lookup_loyalty(identity["sub"])
+        loyalty = lookup_loyalty(auth_module.current_token.get())
     booking = store.create_flight_booking(flight, passengers, loyalty=loyalty)
     return {"booking": booking}
 

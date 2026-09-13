@@ -123,6 +123,14 @@ class BearerAuthMiddleware:
             },
         )
         scope["auth"] = claims
+        current_identity.set(
+            {
+                "sub": claims.get("sub", ""),
+                "actor": (claims.get("act") or {}).get("sub", ""),
+                "scope": claims.get("scope", ""),
+            }
+        )
+        current_token.set(token)
         await self.app(scope, receive, send)
 
     @staticmethod

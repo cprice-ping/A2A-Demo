@@ -31,7 +31,9 @@ import jwt as pyjwt
 from .trace import record
 
 PLANNER_ISSUER = os.environ.get("P1_PLANNER_ISSUER", "")
-PLANNER_AUDIENCE = os.environ.get("P1_UI_CLIENT_ID", "")
+# Audience accepted on planner-tenant tokens hitting the profile API
+# (the exchanged profile token carries aud=planner-profile-api).
+PLANNER_AUDIENCE = os.environ.get("P1_PROFILE_AUDIENCE", "")
 LEEWAY = 30
 
 # Target tenants: A2A base URL -> (issuer, client_id, client_secret, audience, scope)
