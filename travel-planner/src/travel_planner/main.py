@@ -45,8 +45,11 @@ app.mount("/a2a", a2a_app)
 app.add_middleware(ProtocolTraceMiddleware, source="travel-planner")
 
 app.include_router(trace_router("travel-planner"), prefix="/api")
+from .auth import extract_user_token  # noqa: E402
+
 add_adk_fastapi_endpoint(
     app,
     ADKAgent(adk_agent=root_agent, app_name="travel_planner", user_id="demo-user"),
     path="/agui",
+    extract_state_from_request=extract_user_token,
 )

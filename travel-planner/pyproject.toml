@@ -8,6 +8,7 @@ dependencies = [
     "google-adk[a2a]>=2.9,<3",
     "ag-ui-adk>=0.7,<0.8",
     "uvicorn>=0.35",
+    "pyjwt[crypto]>=2.8,<3",
 ]
 
 [dependency-groups]

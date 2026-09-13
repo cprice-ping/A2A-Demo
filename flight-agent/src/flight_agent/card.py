@@ -9,9 +9,18 @@ from __future__ import annotations
 
 import os
 
-from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill
+from a2a.types import (
+    AgentCapabilities,
+    AgentCard,
+    AgentInterface,
+    AgentSkill,
+    ClientCredentialsOAuthFlow,
+    OAuth2SecurityScheme,
+    OAuthFlows,
+)
 
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8080")
+FLIGHTS_ISSUER = os.environ.get("P1_FLIGHTS_ISSUER", "")
 
 # Trailing slash matters: the A2A JSON-RPC route is mounted at "/a2a/" and
 # a2a clients do not follow the 307 redirect from "/a2a".
@@ -46,6 +55,23 @@ SKILLS = [
 
 
 def build_card() -> AgentCard:
+    # When the PingOne issuer is configured, declare the OAuth2 requirement so
+    # A2A-compliant clients know /a2a expects a PingOne bearer token.
+    security_schemes = None
+    security = None
+    if FLIGHTS_ISSUER:
+        security_schemes = {
+            "pingone": OAuth2SecurityScheme(
+                flows=OAuthFlows(
+                    client_credentials=ClientCredentialsOAuthFlow(
+                        token_url=f"{FLIGHTS_ISSUER}/token",
+                        scopes={"a2a:book": "Search and book flights"},
+                    )
+                )
+            )
+        }
+        security = [{"pingone": ["a2a:book"]}]
+
     return AgentCard(
         name="flight_agent",
         description="Flight specialist: searches schedules and prices, books flights, returns confirmations.",
@@ -61,4 +87,6 @@ def build_card() -> AgentCard:
                 protocol_version="1.0",
             ),
         ],
+        security_schemes=security_schemes,
+        security_requirements=security,
     )

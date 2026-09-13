@@ -14,6 +14,7 @@ from google.adk.tools.agent_tool import AgentTool
 from ag_ui_adk import AGUIToolset
 from a2a.types import AgentCard
 
+from . import auth as auth_module
 from .trace import record, record_exchange
 from typing import Any
 
@@ -55,6 +56,24 @@ def _make_traced_client(target: str) -> httpx.AsyncClient:
     """
 
     async def log_request(request: httpx.Request) -> None:
+        # Identity: exchange the human's planner token at the target tenant
+        # and send the result as the A2A call's bearer. Card fetches
+        # (.well-known) stay anonymous.
+        if (
+            ".well-known" not in str(request.url.path)
+            and auth_module.user_token_var.get()
+        ):
+            try:
+                token = auth_module.exchange_token(target, auth_module.user_token_var.get())
+                if token:
+                    request.headers["Authorization"] = f"Bearer {token}"
+            except Exception as exc:  # exchange failure → proceed anonymous
+                record(
+                    "travel-planner",
+                    "auth.token_exchange_failed",
+                    {"target": target, "error": str(exc)},
+                )
+
         request_body = None
         text = ""
         rpc = None

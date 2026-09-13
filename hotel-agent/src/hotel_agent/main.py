@@ -17,9 +17,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from google.adk.a2a.utils.agent_to_a2a import to_a2a
+from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor
+from google.adk.a2a.executor.config import A2aAgentExecutorConfig
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 
 from .agent import a2a_agent, root_agent
+from .auth import BearerAuthMiddleware, identity_request_converter
 from .card import build_card
 from .api.routes import router as api_router
 from .mcp_server import mcp
@@ -33,6 +36,10 @@ mcp_app = mcp.http_app(path="/")
 a2a_app = to_a2a(
     a2a_agent,
     agent_card=build_card(),
+    agent_executor_factory=lambda runner: A2aAgentExecutor(
+        runner=runner,
+        config=A2aAgentExecutorConfig(request_converter=identity_request_converter),
+    ),
 )
 
 
@@ -61,7 +68,7 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api")
 app.include_router(trace_router("hotel-agent"), prefix="/api")
 app.mount("/mcp", mcp_app)
-app.mount("/a2a", a2a_app)
+app.mount("/a2a", BearerAuthMiddleware(a2a_app))
 # Protocol-activity recorder — outermost so it sees /a2a, /mcp and /agui.
 app.add_middleware(ProtocolTraceMiddleware, source="hotel-agent")
 add_adk_fastapi_endpoint(
