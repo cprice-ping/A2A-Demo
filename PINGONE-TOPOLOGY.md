@@ -76,19 +76,44 @@ console, or `POST /applications/{id}/scopes` on the management API). Each
 ```
 Browser ── PKCE login @ planner tenant ──▶ Bearer <planner-user-token> on /agui
 Planner: validates token (planner JWKS) → contextvar
-Planner ── per delegation: RFC 8693 at the TARGET tenant's /as/token
-           subject_token = planner-user-token (cross-issuer, same org)
-           actor_token   = travel-planner CC at that tenant
-           audience      = the specialist's A2A base URL
-           → token: sub=<human in target env>, act={sub: travel-planner},
-             aud=<specialist URL>, scope=a2a:book
-Specialist /a2a middleware: validates own tenant JWKS/iss/aud/act →
-           identity into ADK session state (user_identity)
-Specialist loyalty: re-exchange the request's validated token at the
-           PLANNER tenant (a2a-bridge = actor, aud=planner-profile-api,
+Planner ── reads each specialist's CARD: securitySchemes (token endpoint),
+           securityRequirements (scopes), supported_interfaces (audience)
+           → trace rows auth.card_security   ← A2A authn discovery
+Planner ── RFC 8693 at the TokenExchange-AS (token-as.ping-devops.com/as/token)
+           subject_token = planner-user-token (PingOne JWT, validated at
+                           planner JWKS by the AS)
+           actor_token   = planner's bridge CC JWT at the TARGET tenant
+           audience      = the specialist's A2A URL (from the card)
+           scope         = the card's demanded scopes
+           → AS asks PingOne Authorize (planner env) for the decision,
+             then mints: sub=<person>, act={sub: <bridge client_id>},
+             aud=<specialist A2A URL>, scope=a2a:book
+Specialist /a2a middleware: validates AS JWKS (or own tenant for local
+           logins), iss/aud/act → identity into ADK session state
+Specialist loyalty: re-exchange the request's validated token at the AS
+           (actor = a2a-bridge CC @ planner, aud=planner-profile-api,
            scope=loyalty:read) → GET planner /api/profile/loyalty with a
            PERSON-scoped token → match member → tier discount on booking
 ```
+
+Why the AS: PingOne's `/as/token` **rejects cross-environment subjects**
+with "Cannot parse token claims" (spike matrix 2026-09-14: every
+subject_token type — access_token, id_token, jwt, with/without actor,
+with/without audience — fails identically, while same-env TE succeeds).
+PingIdentity's docs state the subject must be issued by the same
+environment handling the exchange. Same-org cross-env TE is not a thing
+at PingOne's token endpoint. Also, PingOne's TE (same-env) does not emit
+`act` even when an actor_token is supplied, so delegation semantics need
+the AS regardless. PingOne only issues JWT access tokens, so every AS
+input is declared `urn:ietf:params:oauth:token-type:jwt` and takes the
+AS's strict JWKS-validated path (P1AZ sees claims, never raw tokens).
+
+A2A authn discovery (fixed 2026-09-14): the cards advertise the AS token
+endpoint in `securitySchemes` and demanded scopes in `securityRequirements`;
+the planner derives audience from `supportedInterfaces` and its requested
+scopes from the card. Only the planner's own bridge client registrations
+(client id/secret per tenant) are env-config — OAuth client registration
+is out-of-band by design.
 
 ## Console-managed values (in `.env`)
 
@@ -103,6 +128,21 @@ scope**; per user: **Users → chris → password**):
 | Hotels | a2a-bridge: copy client secret + map scope `a2a:book` (A2A Hotel API) | `P1_HOTELS_BRIDGE_CLIENT_SECRET` |
 | Planner | a2a-bridge: copy client secret + map scope `loyalty:read` (Planner Profile API) | `P1_PLANNER_BRIDGE_CLIENT_SECRET` |
 | all 3 | chris@example.com: set password (same in each) | `DEMO_USER_PASSWORD` |
+
+## TokenExchange-AS deployment (ping-devops-cprice)
+
+- Image: `pricecs/token-exchange-as:latest` (built from TokenExchange-AS;
+  includes the PingOne CC actor patch — `client_id` fallback in the actor
+  path, subject path unchanged). Public issuer: `https://token-as.ping-devops.com`
+  (JWKS at `/as/jwks`, metadata at `/.well-known/oauth-authorization-server`).
+- Exchange client: `TOKEN_CLIENT_ID=tokenexchange` + secret (shared by the
+  planner and both specialists as `AS_CLIENT_ID/AS_CLIENT_SECRET`).
+- P1AZ worker: `token-as-p1az-worker` in the planner env,
+  client `12437ae6-fc8d-4e01-b88e-f2dd79a445cd` (secret console-set).
+- AS-minted tokens: `iss=https://token-as.ping-devops.com`,
+  `sub`=person (planner-tenant UUID), `act.sub`=bridge client_id,
+  `aud`=<specialist A2A URL or planner-profile-api>, `scope`, TTL 300s.
+  Minimal by design — no email/roles copied.
 
 ## Swapping in production PingOne / other IdPs
 
