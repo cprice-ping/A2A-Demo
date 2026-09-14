@@ -1,22 +1,25 @@
 """Loyalty pull via a person-scoped token from the PLANNER tenant.
 
-The planner tenant's a2a-bridge (CC + TOKEN_EXCHANGE) is registered for the
-Planner Profile API (audience planner-profile-api, scope loyalty:read).
-PingOne allows custom resources on TOKEN_EXCHANGE clients (not CC clients),
-so the person-scoped profile token is minted by EXCHANGING the caller's
-already-validated subject token at the planner tenant:
+The planner's profile API (audience planner-profile-api, scope loyalty:read)
+is a custom resource, and PingOne only puts custom audiences/scopes on
+TOKEN_EXCHANGE clients. The person-scoped profile token is minted by
+exchanging the caller's already-validated token at the TokenExchange-AS
+(PingOne's /as/token refuses cross-issuer subjects, and its own exchange
+cannot mint custom-audience tokens for CC actors):
 
-    POST planner-tenant /as/token
+    POST <TokenExchange-AS> /as/token
       grant_type    = urn:ietf:params:oauth:grant-type:token-exchange
       subject_token = <the delegated/local token this request arrived with>
+                      (PingOne JWT, validated at its issuer's JWKS)
       actor_token   = a2a-bridge CC @ planner (the caller's client identity
                       at the planner tenant)
       audience      = planner-profile-api
       scope         = loyalty:read
 
-The minted token is about THE PERSON (sub carried from the subject) and
-scoped to read exactly their loyalty linkage — stronger than a shared CC
-client token, which could never carry a custom scope or a user identity.
+The minted token is about THE PERSON (sub carried from the subject — the
+planner tenant's user UUID) and scoped to read exactly their loyalty
+linkage — stronger than a shared CC client token, which could never carry a
+custom scope or a user identity.
 """
 
 from __future__ import annotations
@@ -28,6 +31,9 @@ import httpx
 
 from .trace import record
 
+AS_ISSUER = os.environ.get("AS_ISSUER", "")
+AS_CLIENT_ID = os.environ.get("AS_CLIENT_ID", "")
+AS_CLIENT_SECRET = os.environ.get("AS_CLIENT_SECRET", "")
 PLANNER_ISSUER = os.environ.get("P1_PLANNER_ISSUER", "")
 PLANNER_BRIDGE_CLIENT_ID = os.environ.get("P1_PLANNER_BRIDGE_CLIENT_ID", "")
 PLANNER_BRIDGE_CLIENT_SECRET = os.environ.get("P1_PLANNER_BRIDGE_CLIENT_SECRET", "")
@@ -44,12 +50,20 @@ MEMBERS = {
 
 _actor_cache: tuple[float, str] | None = None
 _profile_token_cache: dict[str, tuple[float, str]] = {}
+JWT_TYPE = "urn:ietf:params:oauth:token-type:jwt"
 
 
 def _actor_token() -> str | None:
     """a2a-bridge client_credentials token at the planner tenant (actor)."""
     global _actor_cache
-    if not PLANNER_BRIDGE_CLIENT_ID or not PLANNER_BRIDGE_CLIENT_SECRET or not PLANNER_ISSUER:
+    if (
+        not AS_ISSUER
+        or not AS_CLIENT_ID
+        or not AS_CLIENT_SECRET
+        or not PLANNER_BRIDGE_CLIENT_ID
+        or not PLANNER_BRIDGE_CLIENT_SECRET
+        or not PLANNER_ISSUER
+    ):
         return None
     if _actor_cache and _actor_cache[0] > time.time():
         return _actor_cache[1]
@@ -83,17 +97,17 @@ def exchange_for_profile_token(subject_token: str) -> str | None:
         return None
     try:
         resp = httpx.post(
-            f"{PLANNER_ISSUER}/token",
+            f"{AS_ISSUER}/as/token",
             data={
                 "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
                 "subject_token": subject_token,
-                "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                "subject_token_type": JWT_TYPE,
                 "actor_token": actor,
-                "actor_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                "actor_token_type": JWT_TYPE,
                 "audience": PROFILE_AUDIENCE,
                 "scope": PROFILE_SCOPE,
             },
-            auth=(PLANNER_BRIDGE_CLIENT_ID, PLANNER_BRIDGE_CLIENT_SECRET),
+            auth=(AS_CLIENT_ID, AS_CLIENT_SECRET),
             timeout=15.0,
         )
         resp.raise_for_status()

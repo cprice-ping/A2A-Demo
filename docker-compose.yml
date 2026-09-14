@@ -17,8 +17,13 @@ services:
       P1_FLIGHTS_ISSUER: ${P1_FLIGHTS_ISSUER:-}
       P1_FLIGHTS_AUDIENCE: ${P1_FLIGHTS_AUDIENCE:-http://localhost:8080}
       AUTH_REQUIRED: ${AUTH_REQUIRED:-false}
-      AUTHORIZED_ACTORS: travel-planner
-      # Loyalty: exchange at the planner tenant (person-scoped token) then pull
+      # Delegated calls: act.sub = the flights a2a-bridge client id
+      AUTHORIZED_ACTORS: ${P1_FLIGHTS_BRIDGE_CLIENT_ID:-travel-planner}
+      # TokenExchange-AS (all exchanges: delegation + loyalty pull)
+      AS_ISSUER: ${AS_ISSUER:-}
+      AS_CLIENT_ID: ${AS_CLIENT_ID:-}
+      AS_CLIENT_SECRET: ${AS_CLIENT_SECRET:-}
+      # Loyalty: person-scoped profile token minted by the AS, then pull
       P1_PLANNER_ISSUER: ${P1_PLANNER_ISSUER:-}
       P1_PLANNER_BRIDGE_CLIENT_ID: ${P1_PLANNER_BRIDGE_CLIENT_ID:-}
       P1_PLANNER_BRIDGE_CLIENT_SECRET: ${P1_PLANNER_BRIDGE_CLIENT_SECRET:-}
@@ -49,8 +54,13 @@ services:
       P1_HOTELS_ISSUER: ${P1_HOTELS_ISSUER:-}
       P1_HOTELS_AUDIENCE: ${P1_HOTELS_AUDIENCE:-http://localhost:8081}
       AUTH_REQUIRED: ${AUTH_REQUIRED:-false}
-      AUTHORIZED_ACTORS: travel-planner
-      # Loyalty: exchange at the planner tenant (person-scoped token) then pull
+      # Delegated calls: act.sub = the hotels a2a-bridge client id
+      AUTHORIZED_ACTORS: ${P1_HOTELS_BRIDGE_CLIENT_ID:-travel-planner}
+      # TokenExchange-AS (all exchanges: delegation + loyalty pull)
+      AS_ISSUER: ${AS_ISSUER:-}
+      AS_CLIENT_ID: ${AS_CLIENT_ID:-}
+      AS_CLIENT_SECRET: ${AS_CLIENT_SECRET:-}
+      # Loyalty: person-scoped profile token minted by the AS, then pull
       P1_PLANNER_ISSUER: ${P1_PLANNER_ISSUER:-}
       P1_PLANNER_BRIDGE_CLIENT_ID: ${P1_PLANNER_BRIDGE_CLIENT_ID:-}
       P1_PLANNER_BRIDGE_CLIENT_SECRET: ${P1_PLANNER_BRIDGE_CLIENT_SECRET:-}
@@ -76,9 +86,13 @@ services:
       FLIGHT_AGENT_CARD_URL: http://flight-agent:8080/a2a/.well-known/agent-card.json
       HOTEL_AGENT_CARD_URL: http://hotel-agent:8080/a2a/.well-known/agent-card.json
       CORS_ORIGINS: http://localhost:5173
-      # Identity: planner tenant validates the UI token; specialists' tenants
-      # receive it via RFC 8693 token exchange.
+      # Identity: planner tenant validates the UI token; specialists receive
+      # AS-minted delegation tokens via RFC 8693 at the TokenExchange-AS.
       P1_PLANNER_ISSUER: ${P1_PLANNER_ISSUER:-}
+      # TokenExchange-AS (all exchanges: delegation + specialists' loyalty pulls)
+      AS_ISSUER: ${AS_ISSUER:-}
+      AS_CLIENT_ID: ${AS_CLIENT_ID:-}
+      AS_CLIENT_SECRET: ${AS_CLIENT_SECRET:-}
       P1_FLIGHTS_ISSUER: ${P1_FLIGHTS_ISSUER:-}
       P1_FLIGHTS_BRIDGE_CLIENT_ID: ${P1_FLIGHTS_BRIDGE_CLIENT_ID:-}
       P1_FLIGHTS_BRIDGE_CLIENT_SECRET: ${P1_FLIGHTS_BRIDGE_CLIENT_SECRET:-}

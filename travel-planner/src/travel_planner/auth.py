@@ -2,18 +2,21 @@
 
 The UI sends the human's planner-tenant PingOne token on /agui calls.
 extract_user_token validates it (planner-tenant JWKS), exposes it via a
-contextvar, and the outbound httpx hook exchanges it at the TARGET tenant
-(flights/hotels) per delegation:
+contextvar, and the outbound httpx hook exchanges it at the TokenExchange-AS
+per delegation:
 
     grant_type  = urn:ietf:params:oauth:grant-type:token-exchange
-    subject     = the human's planner access token
-    actor       = travel-planner client_credentials at the target tenant
+    subject     = the human's planner access token   (PingOne JWT)
+    actor       = travel-planner's bridge client_credentials
+                  at the TARGET tenant                  (PingOne JWT)
     audience    = the specialist's A2A base URL
 
-The target tenant validates the cross-issuer subject, maps it to ITS user,
-and mints a token: aud=<specialist>, sub=<the human in that domain>,
-act={sub: travel-planner-client-id}. That token is the Authorization header
-on the A2A message/stream call.
+PingOne's own /as/token refuses cross-environment subjects (verified by
+spike), so the exchange runs on the standalone AS. The AS validates both
+JWTs against their issuers' JWKS, asks PingOne Authorize (planner env)
+for the delegation decision, and mints: aud=<specialist>,
+sub=<the human>, act={sub: <bridge client_id>}. That token is the
+Authorization header on the A2A message/stream call.
 """
 
 from __future__ import annotations
@@ -31,26 +34,37 @@ import jwt as pyjwt
 from .trace import record
 
 PLANNER_ISSUER = os.environ.get("P1_PLANNER_ISSUER", "")
+# TokenExchange-AS: the exchange point for all delegations (PingOne cannot).
+AS_ISSUER = os.environ.get("AS_ISSUER", "")
+AS_CLIENT_ID = os.environ.get("AS_CLIENT_ID", "")
+AS_CLIENT_SECRET = os.environ.get("AS_CLIENT_SECRET", "")
 # Audience accepted on planner-tenant tokens hitting the profile API
 # (the exchanged profile token carries aud=planner-profile-api).
 PLANNER_AUDIENCE = os.environ.get("P1_PROFILE_AUDIENCE", "")
 LEEWAY = 30
 
-# Target tenants: A2A base URL -> (issuer, client_id, client_secret, audience, scope)
-TARGET_TENANTS: dict[str, dict[str, str]] = {
+JWT_TYPE = "urn:ietf:params:oauth:token-type:jwt"
+
+# Registry of exchange targets. The SECURITY requirements (token endpoint,
+# audience, scopes) come from each specialist's agent card (A2A discovery —
+# see agent.card_security); only the planner's OWN client registrations at
+# the tenants that mint actor tokens are configured here (OAuth client
+# registration is out-of-band by design). "actor" = (issuer, client_id,
+# secret) of the planner's bridge client_credentials at that tenant.
+TARGET_TENANTS: dict[str, dict[str, Any]] = {
     "flight-agent": {
-        "issuer": os.environ.get("P1_FLIGHTS_ISSUER", ""),
-        "client_id": os.environ.get("P1_FLIGHTS_PLANNER_CLIENT_ID", ""),
-        "client_secret": os.environ.get("P1_FLIGHTS_PLANNER_CLIENT_SECRET", ""),
-        "audience": os.environ.get("P1_FLIGHTS_AUDIENCE", ""),
-        "scope": os.environ.get("P1_FLIGHTS_SCOPE", ""),
+        "actor": {
+            "issuer": os.environ.get("P1_FLIGHTS_ISSUER", ""),
+            "client_id": os.environ.get("P1_FLIGHTS_BRIDGE_CLIENT_ID", ""),
+            "client_secret": os.environ.get("P1_FLIGHTS_BRIDGE_CLIENT_SECRET", ""),
+        },
     },
     "hotel-agent": {
-        "issuer": os.environ.get("P1_HOTELS_ISSUER", ""),
-        "client_id": os.environ.get("P1_HOTELS_PLANNER_CLIENT_ID", ""),
-        "client_secret": os.environ.get("P1_HOTELS_PLANNER_CLIENT_SECRET", ""),
-        "audience": os.environ.get("P1_HOTELS_AUDIENCE", ""),
-        "scope": os.environ.get("P1_HOTELS_SCOPE", ""),
+        "actor": {
+            "issuer": os.environ.get("P1_HOTELS_ISSUER", ""),
+            "client_id": os.environ.get("P1_HOTELS_BRIDGE_CLIENT_ID", ""),
+            "client_secret": os.environ.get("P1_HOTELS_BRIDGE_CLIENT_SECRET", ""),
+        },
     },
 }
 
@@ -123,14 +137,14 @@ EXCHANGE_TTL = 240  # conservative vs PingOne's 300s exchanged-token lifetime
 
 def actor_token(tenant: str) -> str:
     """travel-planner's client_credentials token at the target tenant (actor)."""
-    cfg = TARGET_TENANTS[tenant]
+    actor = TARGET_TENANTS[tenant]["actor"]
     hit = _actor_cache.get(tenant)
     if hit and hit[0] > time.time():
         return hit[1]
     resp = httpx.post(
-        f"{cfg['issuer']}/token",
+        f"{actor['issuer']}/token",
         data={"grant_type": "client_credentials"},
-        auth=(cfg["client_id"], cfg["client_secret"]),
+        auth=(actor["client_id"], actor["client_secret"]),
         timeout=15.0,
     )
     resp.raise_for_status()
@@ -142,11 +156,24 @@ def actor_token(tenant: str) -> str:
 def exchange_token(tenant: str, subject_token: str) -> str | None:
     """RFC 8693: subject (the human @planner) + actor (planner CC) -> target token.
 
-    Returns None on failure (consent required, invalid subject, etc.); the
-    failure is traced and the caller proceeds unauthenticated.
+    Audience and scope come from the target's agent card (A2A discovery,
+    stored in TARGET_TENANTS[tenant]["security"] by agent.card_security);
+    the AS client authenticates the exchange and the per-tenant bridge
+    client rides as the actor token. Returns None on failure (consent
+    required, invalid subject, etc.); the failure is traced and the caller
+    proceeds unauthenticated.
     """
     cfg = TARGET_TENANTS[tenant]
-    if not cfg["client_id"] or not cfg["client_secret"] or not subject_token:
+    security = cfg.get("security") or {}
+    actor = cfg["actor"]
+    # The AS client authenticates the exchange; the per-tenant bridge
+    # client rides as the actor token (its CC JWT is fetched by
+    # actor_token(tenant)). Without either side, delegation can't run.
+    if not AS_ISSUER or not AS_CLIENT_ID or not subject_token:
+        return None
+    if not actor["client_id"] or not actor["client_secret"]:
+        return None
+    if not security.get("audience") or not security.get("scopes"):
         return None
     subject_key = hashlib.sha256(subject_token.encode()).hexdigest()[:16]
     cache_key = f"{tenant}:{subject_key}"
@@ -156,18 +183,21 @@ def exchange_token(tenant: str, subject_token: str) -> str | None:
 
     body = {
         "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+        # PingOne only issues JWT access tokens, so every input is declared
+        # as a JWT and the AS validates both cryptographically at their
+        # issuers' JWKS (strict path — no introspection).
         "subject_token": subject_token,
-        "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
+        "subject_token_type": JWT_TYPE,
         "actor_token": actor_token(tenant),
-        "actor_token_type": "urn:ietf:params:oauth:token-type:access_token",
-        "audience": cfg["audience"],
-        "scope": cfg["scope"],
+        "actor_token_type": JWT_TYPE,
+        "audience": security["audience"],
+        "scope": " ".join(security["scopes"]),
     }
     started = time.time()
     resp = httpx.post(
-        f"{cfg['issuer']}/token",
+        f"{AS_ISSUER}/as/token",
         data=body,
-        auth=(cfg["client_id"], cfg["client_secret"]),
+        auth=(AS_CLIENT_ID, AS_CLIENT_SECRET),
         timeout=15.0,
     )
     elapsed_ms = int((time.time() - started) * 1000)

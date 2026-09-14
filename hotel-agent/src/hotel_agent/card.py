@@ -19,6 +19,12 @@ from a2a.types import (
 
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8081")
 HOTELS_ISSUER = os.environ.get("P1_HOTELS_ISSUER", "")
+# Where callers acquire tokens. Delegated A2A callers exchange at the
+# TokenExchange-AS (PingOne's own /as/token refuses cross-environment
+# subjects); when the AS is configured the card advertises ITS token
+# endpoint, otherwise the domain tenant's (local-login callers).
+AS_ISSUER = os.environ.get("AS_ISSUER", "")
+TOKEN_ISSUER = AS_ISSUER or HOTELS_ISSUER
 
 # Trailing slash matters: the A2A JSON-RPC route is mounted at "/a2a/" and
 # a2a clients do not follow the 307 redirect from "/a2a".
@@ -53,15 +59,21 @@ SKILLS = [
 
 
 def build_card() -> AgentCard:
+    # When a token issuer is configured, declare the OAuth2 requirement so
+    # A2A-compliant clients can DISCOVER how to authenticate: the security
+    # scheme names the token endpoint (the TokenExchange-AS for delegated
+    # callers, the domain tenant otherwise) and `securityRequirements`
+    # states which scope this agent demands on /a2a calls. The audience a
+    # token must carry is the agent's own A2A URL (supported_interfaces).
     security_schemes = None
     security = None
-    if HOTELS_ISSUER:
+    if TOKEN_ISSUER:
         security_schemes = {
             "pingone": SecurityScheme(
                 oauth2_security_scheme=OAuth2SecurityScheme(
                     flows=OAuthFlows(
                         client_credentials=ClientCredentialsOAuthFlow(
-                            token_url=f"{HOTELS_ISSUER}/token",
+                            token_url=f"{TOKEN_ISSUER}/token",
                             scopes={"a2a:book": "Search and book hotels"},
                         )
                     )

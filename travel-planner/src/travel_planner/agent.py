@@ -44,6 +44,48 @@ def fetch_card(url: str) -> AgentCard:
     return Parse(resp.content, AgentCard())
 
 
+def card_security(card: AgentCard, target: str) -> dict[str, Any]:
+    """Read the authentication REQUIREMENTS off the agent's own card.
+
+    A2A discovery: the card's securitySchemes name the OAuth2 flow + token
+    endpoint, and securityRequirements state the scopes the agent demands.
+    The audience for the requested token is the agent's own A2A endpoint
+    (its supported_interfaces URL) — that URL is the resource the token is
+    minted for. Nothing here is hardcoded per-agent: add a third specialist
+    and its card carries all of this.
+    """
+    scheme = None
+    for s in (card.security_schemes or {}).values():
+        oauth = getattr(s, "oauth2_security_scheme", None)
+        if oauth is not None:
+            scheme = oauth
+            break
+    token_url = ""
+    scopes: list[str] = []
+    if scheme is not None:
+        cc = getattr(scheme.flows, "client_credentials", None) if scheme.flows else None
+        if cc is not None:
+            token_url = cc.token_url or ""
+            scopes = list((cc.scopes or {}).keys())
+    if not scopes:
+        for req in card.security_requirements or []:
+            for scheme_scopes in (req.schemes or {}).values():
+                scopes.extend(list(getattr(scheme_scopes, "list", []) or []))
+    interface = (card.supported_interfaces or [None])[0]
+    audience = getattr(interface, "url", "") if interface else ""
+    record(
+        "travel-planner",
+        "auth.card_security",
+        {
+            "target": target,
+            "token_url": token_url,
+            "audience": audience,
+            "scopes": scopes,
+        },
+    )
+    return {"token_url": token_url, "audience": audience, "scopes": scopes}
+
+
 def _make_traced_client(target: str) -> httpx.AsyncClient:
     """AsyncClient recording full outbound A2A exchanges for the trace panel.
 
@@ -138,12 +180,25 @@ def _make_traced_client(target: str) -> httpx.AsyncClient:
     )
 
 
+flight_card = fetch_card(FLIGHT_CARD_URL)
+hotel_card = fetch_card(HOTEL_CARD_URL)
+
+# A2A authn discovery: read each specialist's security requirements off its
+# card (token endpoint, scopes, audience) and store them for the exchange
+# hook. The planner's own actor client registrations stay in env.
+auth_module.TARGET_TENANTS["flight-agent"]["security"] = card_security(
+    flight_card, "flight-agent"
+)
+auth_module.TARGET_TENANTS["hotel-agent"]["security"] = card_security(
+    hotel_card, "hotel-agent"
+)
+
 flight_specialist = RemoteA2aAgent(
     name="flight_specialist",
     description=(
         "Searches and books flights between SFO, LAX, JFK, ORD, MIA and LHR."
     ),
-    agent_card=fetch_card(FLIGHT_CARD_URL),
+    agent_card=flight_card,
     use_legacy=False,
     httpx_client=_make_traced_client("flight-agent"),
 )
@@ -151,7 +206,7 @@ flight_specialist = RemoteA2aAgent(
 hotel_specialist = RemoteA2aAgent(
     name="hotel_specialist",
     description="Searches and books hotels by city and stay dates.",
-    agent_card=fetch_card(HOTEL_CARD_URL),
+    agent_card=hotel_card,
     use_legacy=False,
     httpx_client=_make_traced_client("hotel-agent"),
 )

@@ -3,11 +3,12 @@
 Two pieces:
 
 1. BearerAuthMiddleware — pure-ASGI middleware around the A2A mount. Validates
-   the JSON-RPC POST's Bearer token against THIS environment's PingOne issuer
-   (JWKS signature, iss, aud = this agent's A2A base URL, act.sub = the
-   travel-planner client). Sets scope["auth"] with the claims for the identity
-   converter. AUTH_REQUIRED=false (compose default) lets the anonymous demo
-   through unchanged.
+   the JSON-RPC POST's Bearer token against the TokenExchange-AS (delegated
+   calls) or this environment's PingOne issuer (local logins): JWKS signature,
+   iss, aud = this agent's A2A base URL, act.sub = an authorized bridge client.
+   Sets scope["auth"] with the claims for the identity converter.
+   AUTH_REQUIRED=false (compose default) lets the anonymous demo through
+   unchanged.
 
 2. identity_request_converter — replaces ADK's stock A2A→AgentRunRequest
    converter so validated identity lands in ADK session state as
@@ -37,55 +38,81 @@ current_identity: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
 )
 current_token: contextvars.ContextVar[str] = contextvars.ContextVar("current_token", default="")
 
-# This environment's PingOne config (compose env)
+# This agent's audience + who can act on a person's behalf (compose env).
+# Tokens are accepted from two issuers: the TokenExchange-AS (delegated A2A
+# calls — sub=person, act.sub=the bridge client that acted) and this
+# domain's own PingOne tenant (local person logins — no delegation, no act).
 ISSUER = os.environ.get("P1_FLIGHTS_ISSUER", "")
-AUDIENCE = os.environ.get("P1_FLIGHTS_AUDIENCE", "http://localhost:8080")
+AS_ISSUER = os.environ.get("AS_ISSUER", "")
+# Per-issuer audiences. AS-minted (delegated) tokens name the resource that
+# was called — this agent's own A2A endpoint URL, the same URL our card
+# advertises in supported_interfaces (PUBLIC_BASE_URL + /a2a/). Tokens from
+# this domain's PingOne tenant (local person logins) carry the Resource's
+# configured audience (P1_FLIGHTS_AUDIENCE). Deriving the AS audience from
+# PUBLIC_BASE_URL keeps caller and validator in lockstep with what the card
+# advertises — no separate knob to drift.
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8080")
+AUDIENCE = os.environ.get("P1_FLIGHTS_AUDIENCE", "") or PUBLIC_BASE_URL
+AS_AUDIENCE = f"{PUBLIC_BASE_URL}/a2a/"
 AUTHORIZED_ACTORS = {
     c for c in os.environ.get("AUTHORIZED_ACTORS", "travel-planner").split(",") if c
 }
 AUTH_REQUIRED = os.environ.get("AUTH_REQUIRED", "false").lower() == "true"
 LEEWAY = 30
 
-_jwks_cache: tuple[float, dict] | None = None
+_jwks_cache: dict[str, tuple[float, dict]] = {}
 
 
-def _jwks() -> dict:
-    """PingOne JWKS, cached 1 hour."""
+def _jwks_for(issuer: str) -> dict:
+    """Issuer JWKS (PingOne /jwks, AS /as/jwks), cached 1 hour per issuer."""
     global _jwks_cache
     now = time.time()
-    if _jwks_cache is None or _jwks_cache[0] < now:
+    suffix = "/as/jwks" if issuer == AS_ISSUER else "/jwks"
+    cached = _jwks_cache.get(issuer)
+    if cached is None or cached[0] < now:
         import json
 
-        with urlopen(f"{ISSUER}/jwks", timeout=10) as resp:
-            _jwks_cache = (now + 3600, json.load(resp))
-    return _jwks_cache[1]
+        with urlopen(f"{issuer}{suffix}", timeout=10) as resp:
+            _jwks_cache[issuer] = (now + 3600, json.load(resp))
+    return _jwks_cache[issuer][1]
 
 
 def validate_token(token: str) -> dict[str, Any]:
-    """Validate a Bearer JWT against this env's PingOne issuer/audience.
+    """Validate a Bearer JWT against the AS or this env's PingOne issuer.
 
     Raises pyjwt.InvalidTokenError on any failure.
     """
-    if not ISSUER:
+    if not ISSUER and not AS_ISSUER:
         raise pyjwt.InvalidTokenError("issuer not configured")
     headers = pyjwt.get_unverified_header(token)
-    key = pyjwt.PyJWK.from_dict(_pick_jwk(headers["kid"])).key
-    claims = pyjwt.decode(
-        token,
-        key,
-        algorithms=[headers["alg"]],
-        issuer=ISSUER,
-        audience=AUDIENCE,
-        leeway=LEEWAY,
-    )
-    actor = (claims.get("act") or {}).get("sub", "")
-    if AUTHORIZED_ACTORS and actor not in AUTHORIZED_ACTORS:
-        raise pyjwt.InvalidTokenError(f"actor {actor!r} not authorized")
-    return claims
+    last_error: Exception = pyjwt.InvalidTokenError("no issuer configured")
+    for issuer, audience in ((AS_ISSUER, AS_AUDIENCE), (ISSUER, AUDIENCE)):
+        if not issuer:
+            continue
+        try:
+            key = pyjwt.PyJWK.from_dict(_pick_jwk(headers["kid"], issuer)).key
+            claims = pyjwt.decode(
+                token,
+                key,
+                algorithms=[headers["alg"]],
+                issuer=issuer,
+                audience=audience,
+                leeway=LEEWAY,
+            )
+            actor = (claims.get("act") or {}).get("sub", "")
+            if AUTHORIZED_ACTORS and actor not in AUTHORIZED_ACTORS:
+                # Terminal: this issuer DID validate the token; the delegation
+                # itself is unauthorized. Do not try other issuers (a wrong
+                # kid-lookup error must not mask the real rejection reason).
+                raise ValueError(f"actor {actor!r} not authorized")
+            return claims
+        except pyjwt.InvalidTokenError as exc:
+            last_error = exc
+    raise last_error
 
 
-def _pick_jwk(kid: str) -> dict:
-    jwks = _jwks()
+def _pick_jwk(kid: str, issuer: str) -> dict:
+    jwks = _jwks_for(issuer)
     for key in jwks.get("keys", []):
         if key.get("kid") == kid:
             return key
@@ -116,7 +143,7 @@ class BearerAuthMiddleware:
             return
         try:
             claims = validate_token(token)
-        except pyjwt.InvalidTokenError as exc:
+        except (pyjwt.InvalidTokenError, ValueError) as exc:
             record("flight-agent", "auth.rejected", {"reason": str(exc)})
             await self._challenge(send, "invalid_token", str(exc))
             return
