@@ -136,9 +136,15 @@ body {
   display: flex;
   gap: 10px;
   align-items: stretch;
+  /* Strip integrity over card crush: three readable mini-cards at a fixed
+     floor width, scroll horizontally when the viewport can't fit them
+     (projected desktop is the target — never squeeze to illegibility). */
+  overflow-x: auto;
+  padding-bottom: 4px;
 }
 
 .mini-card {
+  min-width: 220px;
   flex: 1;
   text-align: left;
   border: 1px solid var(--border);
@@ -151,7 +157,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  min-width: 0;
 }
 
 .mini-card:hover {
@@ -205,8 +210,8 @@ body {
 }
 
 .mini-card-status.down {
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .mini-card-desc {
@@ -697,10 +702,22 @@ body {
   line-height: 1.5;
 }
 
+.agent-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
 .agent-card-name {
   font-weight: 700;
   font-size: 15px;
   font-family: ui-monospace, monospace;
+}
+
+/* Version sits a half-step down from the mono name — same voice, quieter. */
+.agent-card-version {
+  font: 400 11px/1 ui-monospace, monospace;
+  color: var(--muted);
 }
 
 .agent-card-desc {
@@ -711,7 +728,7 @@ body {
   display: flex;
   gap: 8px;
   align-items: baseline;
-  background: #f1f5f9;
+  background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 6px 10px;
@@ -809,7 +826,7 @@ body {
 
 .agent-card-security-flow {
   padding-left: 10px;
-  border-left: 2px solid var(--border);
+  border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 2px;

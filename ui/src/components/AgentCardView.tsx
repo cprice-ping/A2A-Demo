@@ -103,6 +103,7 @@ export default function AgentCardView({ agentId }: { agentId: AgentId }) {
       <div className="agent-card">
         <div className="agent-card-head">
           <span className="agent-card-name">{card.name}</span>
+          <span className="agent-card-version">v{card.version}</span>
           <button
             className="raw-json-toggle"
             onClick={() => setShowRaw(false)}
@@ -122,7 +123,7 @@ export default function AgentCardView({ agentId }: { agentId: AgentId }) {
     <div className="agent-card">
       <div className="agent-card-head">
         <span className="agent-card-name">{card.name}</span>
-        <span className="muted">v{card.version}</span>
+        <span className="agent-card-version">v{card.version}</span>
         {card.capabilities?.streaming && (
           <span className="chip" title="Supports streaming (SSE)">
             streaming
@@ -190,7 +191,9 @@ function CardSecuritySection({ card }: { card: AgentCard }) {
   const requirements = securityRequirements(card);
   const schemes = card.securitySchemes ?? {};
   const entries = Object.entries(schemes);
-  if (entries.length === 0 && !requirements) return null;
+  // No contract on the wire → say so once and render nothing; an empty
+  // "Security" box would read as broken rendering, not as "no auth".
+  if (entries.length === 0 && requirements.length === 0) return null;
 
   return (
     <div className="agent-card-security">
