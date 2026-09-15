@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AGENT_BASE, type AgentId } from "../agents";
 
-/** The subset of the a2a-sdk 1.x card JSON we render. */
+/** The subset of the a2a-sdk card JSON we render. */
 interface AgentCard {
   name: string;
   description: string;
@@ -19,6 +19,41 @@ interface AgentCard {
     tags?: string[];
     examples?: string[];
   }[];
+  securitySchemes?: Record<
+    string,
+    {
+      type?: string;
+      oauth2SecurityScheme?: {
+        flows?: Record<
+          string,
+          {
+            authorizationUrl?: string;
+            tokenUrl?: string;
+            scopes?: Record<string, string>;
+          }
+        >;
+      };
+    }
+  >;
+  /** Spec-named requirements: [{ scheme: [scopes] }]; also tolerate the
+   *  raw proto field/shape ({ schemes: { scheme: { list: [...] } } }). */
+  security?: Record<string, string[] | { list: string[] }>[];
+  securityRequirements?: { schemes: Record<string, string[] | { list: string[] }> }[];
+}
+
+/** Normalized requirements: [{ scheme: [scopes] }] from either wire shape. */
+function securityRequirements(card: AgentCard): Record<string, string[]>[] {
+  const scopes = (v: string[] | { list?: string[] } | undefined): string[] =>
+    Array.isArray(v) ? v : (v?.list ?? []);
+  if (card.security)
+    return card.security.map((req) =>
+      Object.fromEntries(Object.entries(req ?? {}).map(([s, v]) => [s, scopes(v)]))
+    );
+  const proto = (card as { securityRequirements?: { schemes?: Record<string, string[] | { list: string[] }> }[] })
+    .securityRequirements;
+  return (proto ?? []).map((req) =>
+    Object.fromEntries(Object.entries(req.schemes ?? {}).map(([s, v]) => [s, scopes(v)]))
+  );
 }
 
 export function useAgentCard(agentId: AgentId) {
@@ -75,6 +110,8 @@ export default function AgentCardView({ agentId }: { agentId: AgentId }) {
         </code>
       </div>
 
+      <CardSecuritySection card={card} />
+
       <div className="agent-card-skills">
         {card.skills.map((s) => (
           <div className="skill" key={s.id}>
@@ -111,4 +148,83 @@ export default function AgentCardView({ agentId }: { agentId: AgentId }) {
 function ifaceProtocol(iface?: { protocolBinding?: string; protocolVersion?: string }) {
   if (!iface) return "";
   return `${iface.protocolBinding ?? "?"}/${iface.protocolVersion ?? "?"}`;
+}
+
+/** The auth contract, exactly as the wire carries it: which schemes this
+ *  agent accepts (each with its flow + token endpoint) and which scopes
+ *  /a2a demands. This is what the planner reads to learn HOW to talk
+ *  here — the delegated-caller scheme and the direct person login side
+ *  by side. */
+function CardSecuritySection({ card }: { card: AgentCard }) {
+  const requirements = securityRequirements(card);
+  const schemes = card.securitySchemes ?? {};
+  const entries = Object.entries(schemes);
+  if (entries.length === 0 && !requirements) return null;
+
+  return (
+    <div className="agent-card-security">
+      <div className="agent-card-security-title">Security</div>
+      {requirements.length > 0 && (
+        <div className="agent-card-security-req">
+          <span className="muted">requires</span>
+          {requirements.map((req, i) => (
+            <span className="agent-card-security-req-item" key={i}>
+              {Object.entries(req).map(([scheme, scopes]) => (
+                <span key={scheme}>
+                  <code className="scheme-name">{scheme}</code>
+                  {scopes.length > 0 && (
+                    <span className="scheme-scopes">
+                      {scopes.map((s) => (
+                        <span className="chip" key={s}>
+                          {s}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </span>
+              ))}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="agent-card-security-schemes">
+        {entries.map(([name, scheme]) => {
+          const flows = scheme.oauth2SecurityScheme?.flows ?? {};
+          return (
+            <div className="agent-card-security-scheme" key={name}>
+              <code className="scheme-name">{name}</code>
+              <span className="muted">
+                {scheme.type ?? "oauth2"} ·{" "}
+                {Object.keys(flows).join(" / ")}
+              </span>
+              {Object.entries(flows).map(([flowName, flow]) => (
+                <div className="agent-card-security-flow" key={flowName}>
+                  {flow.authorizationUrl && (
+                    <div>
+                      <span className="muted">authorize</span>{" "}
+                      <code>{flow.authorizationUrl}</code>
+                    </div>
+                  )}
+                  {flow.tokenUrl && (
+                    <div>
+                      <span className="muted">token</span> <code>{flow.tokenUrl}</code>
+                    </div>
+                  )}
+                  {flow.scopes && Object.keys(flow.scopes).length > 0 && (
+                    <div className="scheme-scopes">
+                      {Object.keys(flow.scopes).map((s) => (
+                        <span className="chip" key={s}>
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }

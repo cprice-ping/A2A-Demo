@@ -758,6 +758,79 @@ body {
   font-size: 12px;
 }
 
+/* Agent card security block — the auth contract, wire-voiced */
+.agent-card-security {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: var(--panel);
+}
+
+.agent-card-security-title {
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.agent-card-security-req {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.agent-card-security-req-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-card-security-schemes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-card-security-scheme {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  background: var(--code-bg);
+  border-radius: 6px;
+  font-size: 11.5px;
+}
+
+.agent-card-security-scheme > .scheme-name {
+  font-weight: 600;
+}
+
+.agent-card-security-flow {
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-card-security-flow code {
+  font-size: 10.5px;
+  word-break: break-all;
+}
+
+.scheme-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.scheme-scopes {
+  display: inline-flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
