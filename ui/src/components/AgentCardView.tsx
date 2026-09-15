@@ -58,6 +58,9 @@ function securityRequirements(card: AgentCard): Record<string, string[]>[] {
 
 export function useAgentCard(agentId: AgentId) {
   const [card, setCard] = useState<AgentCard | null>(null);
+  // The verbatim wire document (for the raw-JSON view — re-serializing the
+  // parsed subset would lose fields we don't render).
+  const [rawJson, setRawJson] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,20 +68,25 @@ export function useAgentCard(agentId: AgentId) {
     fetch(`${AGENT_BASE[agentId]}/a2a/.well-known/agent-card.json`)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
+        return r.text();
       })
-      .then((c) => !cancelled && setCard(c))
+      .then((text) => {
+        if (cancelled) return;
+        setRawJson(text);
+        setCard(JSON.parse(text));
+      })
       .catch((e) => !cancelled && setError(String(e)));
     return () => {
       cancelled = true;
     };
   }, [agentId]);
 
-  return { card, error };
+  return { card, rawJson, error };
 }
 
 export default function AgentCardView({ agentId }: { agentId: AgentId }) {
-  const { card, error } = useAgentCard(agentId);
+  const { card, rawJson, error } = useAgentCard(agentId);
+  const [showRaw, setShowRaw] = useState(false);
 
   if (error)
     return (
@@ -90,6 +98,26 @@ export default function AgentCardView({ agentId }: { agentId: AgentId }) {
 
   const iface = card.supportedInterfaces?.[0];
 
+  if (showRaw) {
+    return (
+      <div className="agent-card">
+        <div className="agent-card-head">
+          <span className="agent-card-name">{card.name}</span>
+          <button
+            className="raw-json-toggle"
+            onClick={() => setShowRaw(false)}
+            title="Back to the rendered card"
+          >
+            ← rendered
+          </button>
+        </div>
+        <pre className="agent-card-raw">
+          {rawJson ? JSON.stringify(JSON.parse(rawJson), null, 2) : "…"}
+        </pre>
+      </div>
+    );
+  }
+
   return (
     <div className="agent-card">
       <div className="agent-card-head">
@@ -100,6 +128,9 @@ export default function AgentCardView({ agentId }: { agentId: AgentId }) {
             streaming
           </span>
         )}
+        <button className="raw-json-toggle" onClick={() => setShowRaw(true)} title="Show the raw card JSON">
+          {"{ } raw JSON"}
+        </button>
       </div>
       <div className="agent-card-desc">{card.description}</div>
 
