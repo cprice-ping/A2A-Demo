@@ -6,7 +6,6 @@ import json
 import os
 
 import httpx
-from google.protobuf.json_format import Parse
 
 from google.adk.agents import Agent
 from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
@@ -30,43 +29,66 @@ RENDER_TOOLS = [
 
 
 def fetch_card(url: str) -> AgentCard:
-    """Fetch an agent card over HTTP and return it as an AgentCard object.
+    """Fetch an agent card over HTTP and return it as a core AgentCard.
 
     RemoteA2aAgent only accepts plain-http card URLs on loopback hosts, which
     breaks container-network hostnames (flight-agent:8080). Fetching here and
     passing the object is the documented escape hatch: a directly-passed card
     did not come off the network inside ADK, so its transport is the caller's
     responsibility — that's fine on a trusted compose/k8s network.
+
+    The specialists serve 0.3-protocol cards (that's what the SDK's compat
+    serializer emits — and the path that carries the spec-named `security`
+    field), so the JSON is parsed with the 0.3 compat model and converted to
+    the core proto. Parsing with the 1.x proto Parse() directly would reject
+    the 0.3 wire's flattened OAuth flows + type discriminator.
     """
     record("travel-planner", "a2a.card_fetch", {"url": url})
     resp = httpx.get(url, timeout=15.0)
     resp.raise_for_status()
-    return Parse(resp.content, AgentCard())
+    from a2a.compat.v0_3.conversions import to_core_agent_card
+    from a2a.compat.v0_3.types import AgentCard as CompatCard
+
+    compat = CompatCard.model_validate_json(resp.content)
+    return to_core_agent_card(compat)
 
 
 def card_security(card: AgentCard, target: str) -> dict[str, Any]:
     """Read the authentication REQUIREMENTS off the agent's own card.
 
-    A2A discovery: the card's securitySchemes name the OAuth2 flow + token
-    endpoint, and securityRequirements state the scopes the agent demands.
-    The audience for the requested token is the agent's own A2A endpoint
-    (its supported_interfaces URL) — that URL is the resource the token is
-    minted for. Nothing here is hardcoded per-agent: add a third specialist
-    and its card carries all of this.
+    A2A discovery: the card's securitySchemes name the OAuth2 flows + token
+    endpoints, and security requirements state the scopes the agent demands.
+    The card's `pingone` scheme (client credentials at the TokenExchange-AS)
+    is the agent-caller acquisition point — preferred over a local person
+    login scheme when both exist. The audience for the requested token is
+    the agent's own A2A endpoint (its supported_interfaces URL). Nothing
+    here is hardcoded per-agent: add a third specialist and its card
+    carries all of this.
     """
-    scheme = None
-    for s in (card.security_schemes or {}).values():
-        oauth = getattr(s, "oauth2_security_scheme", None)
-        if oauth is not None:
-            scheme = oauth
-            break
+    schemes = {
+        name: getattr(s, "oauth2_security_scheme", None)
+        for name, s in (card.security_schemes or {}).items()
+    }
+    schemes = {k: v for k, v in schemes.items() if v is not None}
     token_url = ""
     scopes: list[str] = []
-    if scheme is not None:
+
+    def read_cc(scheme: Any) -> None:
+        nonlocal token_url, scopes
         cc = getattr(scheme.flows, "client_credentials", None) if scheme.flows else None
-        if cc is not None:
-            token_url = cc.token_url or ""
-            scopes = list((cc.scopes or {}).keys())
+        if cc is not None and cc.token_url:
+            token_url = token_url or cc.token_url
+            flow_scopes = list((cc.scopes or {}).keys())
+            if not scopes:
+                scopes = flow_scopes
+
+    # Prefer the delegated-caller scheme by name, then any CC flow.
+    preferred = schemes.get("pingone")
+    if preferred is not None:
+        read_cc(preferred)
+    if not token_url:
+        for scheme in schemes.values():
+            read_cc(scheme)
     if not scopes:
         for req in card.security_requirements or []:
             for scheme_scopes in (req.schemes or {}).values():

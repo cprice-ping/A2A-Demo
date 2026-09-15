@@ -86,7 +86,15 @@ def _planner_jwks() -> dict:
 
 
 def validate_planner_token(token: str) -> dict:
-    """Validate the human's planner-tenant JWT; return claims."""
+    """Validate the human's planner-tenant JWT; return claims.
+
+    Signature + issuer bind the token to the planner tenant; no audience is
+    enforced because PingOne user tokens carry the platform API audience
+    (aud=['https://api.pingone.com']) rather than anything the planner can
+    predict — and PyJWT rejects tokens that carry an aud when the validator
+    names none. The AS re-validates the same JWT cryptographically before
+    any exchange, so trust rests on the signature.
+    """
     headers = pyjwt.get_unverified_header(token)
     kid = headers["kid"]
     for key in _planner_jwks().get("keys", []):
@@ -96,6 +104,7 @@ def validate_planner_token(token: str) -> dict:
                 pyjwt.PyJWK.from_dict(key).key,
                 algorithms=[headers["alg"]],
                 issuer=PLANNER_ISSUER,
+                options={"verify_aud": False},
                 leeway=LEEWAY,
             )
     raise pyjwt.InvalidTokenError(f"kid {kid!r} not in planner JWKS")
