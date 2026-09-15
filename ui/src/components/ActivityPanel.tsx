@@ -27,6 +27,16 @@ const AGENT_URLS: Record<string, string> = {
   "travel-planner": "http://localhost:8082",
 };
 
+/** Class-safe kind slug: CSS classes can't hold dots, so
+ *  "auth.token_exchange" becomes "auth-token-exchange". */
+function kindSlug(kind: string): string {
+  return kind.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+}
+
+/** Kinds whose wire moment deserves the deck's attention wash. Delegation
+ *  (token exchange) is the demo's identity thesis — it lands visibly. */
+const KIND_ATTENTION = new Set(["auth.token_exchange"]);
+
 const SOURCE_ICON: Record<string, string> = {
   "flight-agent": "✈️",
   "hotel-agent": "🏨",
@@ -301,7 +311,7 @@ export default function ActivityPanel({
                   </div>
                 )}
                 <div
-                  className={`activity-row kind-${event.kind} ${expandable ? "expandable" : ""}`}
+                  className={`activity-row kind-${kindSlug(event.kind)} ${KIND_ATTENTION.has(event.kind) ? "attention" : ""} ${expandable ? "expandable" : ""}`}
                   onClick={expandable ? () => toggleRow(key) : undefined}
                   title={expandable ? "Click to show full request/response" : undefined}
                 >

@@ -14,6 +14,63 @@
   box-sizing: border-box;
 }
 
+/* ---- Motion grammar: "the deck is live" --------------------------------
+   The trace feed is the demo's heartbeat. Wire events land with a soft
+   arrival pulse; the delegation moment (token exchange) carries an
+   attention wash; confirmed bookings get one authored stamp moment; live
+   statuses breathe. Everything respects prefers-reduced-motion. */
+
+@keyframes row-arrive {
+  from {
+    background-color: var(--accent-soft);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes attention-glow {
+  from {
+    background-color: var(--accent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes booking-stamp {
+  0% {
+    box-shadow: 0 0 0 0 rgba(4, 120, 87, 0.35);
+    border-color: var(--green);
+  }
+  60% {
+    box-shadow: 0 0 0 7px rgba(4, 120, 87, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(4, 120, 87, 0);
+    border-color: var(--green);
+  }
+}
+
+@keyframes live-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes skeleton-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -33,6 +90,9 @@ body {
   justify-content: space-between;
   gap: 16px;
   padding: 12px 20px;
+  /* Keep the identity controls clear of the fixed CopilotSidebar, exactly
+     like .chat-pane does — otherwise Sign in is hidden behind the chat. */
+  padding-right: 30rem;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
@@ -130,6 +190,20 @@ body {
   color: var(--green);
 }
 
+/* A live card is genuinely live — the dot before the word breathes once a
+   card is confirmed live. Implemented as a pulsing marker pseudo-element. */
+.mini-card-status.up::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--green);
+  margin-right: 4px;
+  vertical-align: 1px;
+  animation: live-breathe 2.4s ease-in-out infinite;
+}
+
 .mini-card-status.down {
   background: #fef2f2;
   color: #b91c1c;
@@ -165,11 +239,18 @@ body {
   flex-direction: column;
   gap: 14px;
   overflow-y: auto;
-  transition: width 0.15s ease;
 }
 
+/* Expand without layout thrash: the pane keeps its full width and slides
+   in via transform (chat pane's right padding absorbs the difference). */
 .activity-pane.expanded {
   width: min(560px, 50vw);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .activity-pane {
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
 }
 
 .info-pane-inner {
@@ -199,6 +280,7 @@ body {
   padding: 8px 14px;
   font-size: 14px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .agent-tab.active {
@@ -237,6 +319,24 @@ body {
 .widget-empty {
   color: var(--muted);
   padding: 6px 0;
+}
+
+/* Searching/Confirming: a sweeping shimmer bar — truthful waiting (the
+   request really is in flight), styled from the deck's own palette. */
+.widget-loading {
+  position: relative;
+  overflow: hidden;
+}
+
+.widget-loading::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, var(--accent-soft), transparent);
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
 }
 
 .widget-table {
@@ -321,6 +421,7 @@ body {
 .widget-card.booking.confirmed {
   border-color: var(--green);
   background: var(--green-soft);
+  animation: booking-stamp 0.9s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .booking-id {
@@ -415,6 +516,26 @@ body {
   padding: 3px 8px;
   border-bottom: 1px solid var(--border);
   align-items: baseline;
+  animation: row-arrive 1.2s ease-out;
+}
+
+/* The delegation moment: the row washes from full Signal Blue as the
+   exchange lands — the demo's identity thesis, visible. */
+.activity-row.attention {
+  animation: attention-glow 1.6s ease-out;
+}
+
+/* Semantic kind washes (slugs are dot-free — see kindSlug). */
+.activity-row.kind-auth-token-exchange {
+  background: var(--accent-soft);
+}
+
+.activity-row.kind-auth-rejected {
+  background: #fef2f2;
+}
+
+.activity-row.kind-auth-accepted {
+  background: var(--green-soft);
 }
 
 .activity-time {
@@ -761,4 +882,61 @@ body {
 
 .loyalty-program {
   color: var(--muted);
+}
+
+/* ---- Reduced motion: fewer and gentler, not off ------------------------
+   State color (wash, tint) stays as instant feedback; only movement and
+   looping effects are removed. */
+@media (prefers-reduced-motion: reduce) {
+  .activity-row,
+  .activity-row.attention {
+    animation: none;
+  }
+
+  .widget-card.booking.confirmed {
+    animation: none;
+  }
+
+  .mini-card-status.up::before {
+    animation: none;
+  }
+
+  .widget-loading::after {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* ---- Browser surfaces carry the design too ---------------------------- */
+::selection {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
 }
