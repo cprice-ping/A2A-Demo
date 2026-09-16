@@ -3,12 +3,15 @@
 Usage:
   python gap/deploy_flight.py create   # first deployment
   python gap/deploy_flight.py upgrade  # redeploy preserving reasoningEngineId
-  python gap/deploy_flight.py card     # fetch the authenticated agent card (WIF/ADC creds)
+  python gap/deploy_flight.py card <engine-id>  # fetch the authenticated card
 
-The agent module (flight_agent.gap_agent) builds an A2aAgent wrapping our
-card + an identity-aware executor. Deployment registers it as a
-reasoningEngine; the platform handles serving, IAM at the edge, and the
-authenticated card endpoint.
+Client-side env: a dedicated venv (the global env may carry older ADK pins
+that conflict with aiplatform 2.x):
+  python3 -m venv ~/.venvs/gap-deploy
+  ~/.venvs/gap-deploy/bin/pip install "google-cloud-aiplatform[agent_engines]>=2.1,<3"
+Prereqs: ADC (gcloud auth application-default login), Cloud Resource
+Manager API enabled, and a GCS staging bucket (STAGING_BUCKET env or the
+default below — created on first run).
 """
 
 from __future__ import annotations
@@ -22,6 +25,12 @@ PROJECT_ID = "cprice---agentic-demos"
 LOCATION = "us-west1"
 DISPLAY_NAME = "a2a-flight-agent"
 
+# GCS bucket GAP stages the agent package into (in this project, regional
+# us-west1 or US multi-region). Ensure it exists before create/upgrade.
+STAGING_BUCKET = os.environ.get(
+    "STAGING_BUCKET", f"{PROJECT_NUMBER}-agent-engines-staging"
+)
+
 # App runtime configuration: GAP runs our module and calls build_gap_agent().
 REQUIREMENTS = [
     "google-cloud-aiplatform[agent_engines]>=2.1,<3",
@@ -34,14 +43,36 @@ REQUIREMENTS = [
 EXTRA_PACKAGES = ["../flight-agent/src"]  # the flight_agent package itself
 
 
-def _client():
-    import vertexai
+def _ensure_staging_bucket() -> None:
+    """Create the staging bucket if absent (first deployment only)."""
+    from google.cloud import storage
 
-    return vertexai.Client(project=PROJECT_NUMBER, location=LOCATION)
+    client = storage.Client(project=PROJECT_ID)
+    try:
+        client.get_bucket(STAGING_BUCKET)
+    except Exception:
+        bucket = client.bucket(STAGING_BUCKET)
+        bucket.storage_class = "STANDARD"
+        bucket.create(location=LOCATION)
+        print(f"created staging bucket: gs://{STAGING_BUCKET}")
+
+
+def _client():
+    # agentplatform.Client is the post-2.0 name; vertexai.Client still works
+    # but warns. Prefer the new name, fall back for older installs.
+    try:
+        from agentplatform import Client
+    except ImportError:
+        import vertexai
+
+        return vertexai.Client(project=PROJECT_NUMBER, location=LOCATION)
+    return Client(project=PROJECT_NUMBER, location=LOCATION)
 
 
 def main() -> None:
     action = sys.argv[1] if len(sys.argv) > 1 else "create"
+    if action in ("create", "upgrade"):
+        _ensure_staging_bucket()
     client = _client()
 
     # Import the agent module with repo paths on sys.path (the template
@@ -56,6 +87,7 @@ def main() -> None:
             config={
                 "display_name": DISPLAY_NAME,
                 "requirements": REQUIREMENTS,
+                "staging_bucket": f"gs://{STAGING_BUCKET}",
             },
         )
         # create(agent_engine=None, agent=…, config=…) — agent_engine is
@@ -79,7 +111,10 @@ def main() -> None:
         remote = client.agent_engines.update(
             target.name,
             agent=gap_agent,
-            config={"requirements": REQUIREMENTS},
+            config={
+                "requirements": REQUIREMENTS,
+                "staging_bucket": f"gs://{STAGING_BUCKET}",
+            },
         )
         print("updated:", remote.name)
     elif action == "card":
