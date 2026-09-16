@@ -117,7 +117,7 @@ def _validate_delegated_token(token: str) -> dict[str, Any] | None:
 
 
 def _build_gap_agent() -> LlmAgent:
-    from .agent import A2A_INSTRUCTION
+    from .instructions import A2A_INSTRUCTION
 
     return LlmAgent(
         name="flight_agent",
