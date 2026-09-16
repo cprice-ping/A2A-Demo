@@ -92,10 +92,19 @@ def _validate_profile_token(token: str) -> dict:
                 with urlopen(f"{issuer}/as/jwks", timeout=10) as resp:
                     import json
 
-                    keys = json.load(resp)
+                    # /as/jwks serves a bare JWKS — the key list is under
+                    # "keys"; iterating the dict would walk its top-level
+                    # key names and crash with TypeError on k["kid"].
+                    keys = json.load(resp)["keys"]
             else:
                 keys = _planner_jwks()["keys"]
             key = next(k for k in keys if k["kid"] == kid)
+            # PyJWT with audience=None still validates the token's aud claim
+            # against the empty expectation on 2.14 — an explicit opt-out is
+            # required when no audience is configured.
+            audience_options = (
+                {"verify_aud": False} if not PLANNER_AUDIENCE else {}
+            )
             return pyjwt.decode(
                 token,
                 pyjwt.PyJWK.from_dict(key).key,
@@ -103,6 +112,7 @@ def _validate_profile_token(token: str) -> dict:
                 issuer=issuer,
                 audience=PLANNER_AUDIENCE or None,
                 leeway=30,
+                options=audience_options,
             )
         except Exception as exc:  # try the next issuer
             last_error = exc
