@@ -73,6 +73,13 @@ def _client():
     return Client(project=PROJECT_NUMBER, location=LOCATION)
 
 
+def _engine_resource_name(remote) -> str:
+    """Resource name from a create/update result (Runtime wraps the
+    reasoningEngine in api_resource; there is no .name)."""
+    res = getattr(remote, "api_resource", None)
+    return getattr(res, "name", "") or str(remote)
+
+
 def main() -> None:
     action = sys.argv[1] if len(sys.argv) > 1 else "create"
     if action in ("create", "upgrade"):
@@ -109,7 +116,7 @@ def main() -> None:
                 "extra_packages": extra_packages,
             },
         )
-        print("created:", remote.name)
+        print("created:", _engine_resource_name(remote))
     elif action == "upgrade":
         # Preserve the existing reasoningEngineId: resolve by display name.
         # The list API doesn't filter by display_name server-side; scan locally.
@@ -134,7 +141,7 @@ def main() -> None:
                 "extra_packages": extra_packages,
             },
         )
-        print("updated:", remote.name)
+        print("updated:", _engine_resource_name(remote))
     elif action == "card":
         name = sys.argv[2] if len(sys.argv) > 2 else None
         if not name:
