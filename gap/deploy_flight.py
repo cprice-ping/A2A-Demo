@@ -46,7 +46,12 @@ REQUIREMENTS = [
     "cloudpickle",
 ]
 
-EXTRA_PACKAGES = ["../flight-agent/src"]  # the flight_agent package itself
+# The flight_agent package itself, staged into the image alongside the
+# pickled agent: cloudpickle stores flight_agent.* by reference (importable
+# modules aren't serialized by value), so the runtime image must contain
+# the package or unpickling dies with ModuleNotFoundError — surfacing only
+# as the generic "failed to start" engine error. Resolved absolute in main().
+EXTRA_PACKAGES = None  # set in main(): absolute path to flight-agent/src
 
 
 def _ensure_staging_bucket() -> None:
@@ -78,8 +83,10 @@ def main() -> None:
     # Import the agent module with repo paths on sys.path (the template
     # pickles the module tree at deploy time).
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    sys.path.insert(0, os.path.join(repo_root, "flight-agent", "src"))
+    package_src = os.path.join(repo_root, "flight-agent", "src")
+    sys.path.insert(0, package_src)
     from flight_agent.gap_agent import gap_agent  # noqa: E402
+    extra_packages = [package_src]
 
     if action == "create":
         # agentplatform (post-2.0 SDK): client.runtimes.create(runtime=None,
@@ -91,6 +98,7 @@ def main() -> None:
                 "display_name": DISPLAY_NAME,
                 "requirements": REQUIREMENTS,
                 "staging_bucket": f"gs://{STAGING_BUCKET}",
+                "extra_packages": extra_packages,
             },
         )
         print("created:", remote.name)
@@ -115,6 +123,7 @@ def main() -> None:
             config={
                 "requirements": REQUIREMENTS,
                 "staging_bucket": f"gs://{STAGING_BUCKET}",
+                "extra_packages": extra_packages,
             },
         )
         print("updated:", remote.name)
