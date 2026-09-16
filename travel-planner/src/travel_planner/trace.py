@@ -203,7 +203,14 @@ def _summarize_request(path: str, body: bytes) -> dict:
             (m.get("content") for m in reversed(messages) if m.get("role") == "user"),
             None,
         )
-        return {"kind": "agui.run", "detail": {"message": str(last_user or "")[:140]}}
+        roles: dict[str, int] = {}
+        for m in messages:
+            role = m.get("role", "?")
+            roles[role] = roles.get(role, 0) + 1
+        return {
+            "kind": "agui.run",
+            "detail": {"message": str(last_user or "")[:140], "messages": roles},
+        }
 
     # A2A JSON-RPC — the full exchange is recorded at completion; nothing here.
     return {"kind": "a2a.ignored", "detail": {}}
