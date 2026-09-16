@@ -95,9 +95,15 @@ function describe(e: TraceEvent): string {
   }
 }
 
-/** Expandable: rows with an exchange_id fetch the full request/response. */
+/** Every row is expandable: the detail JSON is the presenter's proof. Rows
+ *  with an exchange_id additionally fetch the full request/response. */
 function hasExchange(e: TraceEvent): boolean {
   return e.kind === "a2a.exchange" && !!e.detail.exchange_id;
+}
+
+/** Rows whose detail is worth rendering even without an exchange record. */
+function hasDetail(e: TraceEvent): boolean {
+  return Object.keys(e.detail ?? {}).length > 0;
 }
 
 function summarizeResult(frame: unknown): string {
@@ -128,15 +134,17 @@ function summarizeResult(frame: unknown): string {
 
 function ExchangeView({
   source,
-  exchangeId,
+  event,
 }: {
   source: string;
-  exchangeId: string;
+  event: TraceEvent;
 }) {
+  const exchangeId = event.kind === "a2a.exchange" ? String(event.detail.exchange_id ?? "") : "";
   const [ex, setEx] = useState<A2AExchange | null>(null);
   const [error, setError] = useState(false);
 
   useEffect(() => {
+    if (!exchangeId) return;
     let cancelled = false;
     fetch(`${AGENT_URLS[source]}/api/trace/a2a`)
       .then((r) => r.json())
@@ -152,6 +160,18 @@ function ExchangeView({
       cancelled = true;
     };
   }, [source, exchangeId]);
+
+  // No exchange record behind this row: show the event's own detail JSON.
+  if (!exchangeId) {
+    return (
+      <div className="ex-block">
+        <div className="ex-section">
+          <div className="ex-label">detail</div>
+          <pre className="ex-json">{JSON.stringify(event.detail, null, 2)}</pre>
+        </div>
+      </div>
+    );
+  }
 
   if (error) return <div className="ex-block muted">exchange expired</div>;
   if (!ex) return <div className="ex-block muted">loading exchange…</div>;
@@ -300,7 +320,7 @@ export default function ActivityPanel({
           {rows.map(({ key, event }, idx) => {
             const style =
               KIND_STYLE[event.kind] ?? { icon: "•", label: event.kind };
-            const expandable = hasExchange(event);
+            const expandable = hasExchange(event) || hasDetail(event);
             const isOpen = expandedRows.has(key);
             const time = new Date(event.ts * 1000).toLocaleTimeString();
             return (
@@ -313,7 +333,7 @@ export default function ActivityPanel({
                 <div
                   className={`activity-row kind-${kindSlug(event.kind)} ${KIND_ATTENTION.has(event.kind) ? "attention" : ""} ${expandable ? "expandable" : ""}`}
                   onClick={expandable ? () => toggleRow(key) : undefined}
-                  title={expandable ? "Click to show full request/response" : undefined}
+                  title={expandable ? "Click to show the wire detail" : undefined}
                 >
                   <span className="activity-time">{time}</span>
                   <span className="activity-icon">
@@ -332,7 +352,7 @@ export default function ActivityPanel({
                 {expandable && isOpen && (
                   <ExchangeView
                     source={event.source}
-                    exchangeId={String(event.detail.exchange_id)}
+                    event={event}
                   />
                 )}
               </div>

@@ -562,6 +562,8 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ink);
+  flex: 1;
+  min-width: 0;
 }
 
 .kind-a2a-request,
@@ -609,6 +611,7 @@ body {
   background: #fbfcfe;
   padding: 8px 10px 10px 34px;
   font-size: 11px;
+  overflow-x: auto;
 }
 
 .ex-section {
