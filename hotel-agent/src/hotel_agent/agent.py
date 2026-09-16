@@ -5,19 +5,33 @@ from __future__ import annotations
 import os
 
 from google.adk.agents import Agent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StreamableHTTPConnectionParams
+from google.adk.tools.mcp_tool.mcp_toolset import McpToolset, StreamableHTTPConnectionParams
 from ag_ui_adk import AGUIToolset
+
+from . import mcp_server
 
 MCP_SELF_URL = os.environ.get("MCP_SELF_URL", "http://localhost:8081/mcp")
 
 FRONTEND_TOOLS = ["render_hotel_search", "render_hotel_booking"]
 
+# The MCP server's book_hotel is excluded from what these agents see: it runs
+# over a separate HTTP hop where the middleware's identity contextvars are
+# empty, so it can never apply loyalty. book_hotel_identity_aware below is a
+# native ADK tool the agent calls instead — it runs IN the A2A request's
+# async context, where identity + the raw token are actually set. MCP still
+# serves plain book_hotel to non-agent HTTP callers.
+def _exclude_book_hotel(tool, readonly_context=None) -> bool:
+    return tool.name != "book_hotel"
+
+
 INSTRUCTION = """
 You are hotel_agent, a hotel search and booking assistant.
 
 ## Tools
-- The MCP tools (list_cities, search_hotels, get_hotel, book_hotel, get_booking)
-  are the ONLY source of hotel data. Never invent hotels, prices, or booking ids.
+- list_cities, search_hotels, get_hotel, get_booking are the ONLY source of
+  hotel data. Never invent hotels, prices, or booking ids.
+- book_hotel_identity_aware books a hotel (applies the caller's loyalty
+  discount automatically when they're signed in — nothing else to do for that).
 - The render_* tools are FRONTEND tools: the user's chat UI renders their
   arguments as visual cards. Their results mean "rendered OK" — do not restate
   the data in text.
@@ -34,7 +48,8 @@ You are hotel_agent, a hotel search and booking assistant.
    call needed unless they want the list again.
 
 ## Booking procedure
-1. Confirm the hotel, dates, and guest count with the user BEFORE book_hotel.
+1. Confirm the hotel, dates, and guest count with the user BEFORE calling
+   book_hotel_identity_aware.
 2. After a successful booking, call render_hotel_booking with the booking
    object VERBATIM, and reply with one sentence including the booking id.
 3. If a tool returns {"error": ...}, tell the user plainly what went wrong and
@@ -50,10 +65,12 @@ root_agent = Agent(
     description="Hotel specialist: search and book hotels in NYC, LAX, MIA, LHR, SFO and ORD.",
     instruction=INSTRUCTION,
     tools=[
-        MCPToolset(
+        McpToolset(
             connection_params=StreamableHTTPConnectionParams(url=MCP_SELF_URL),
+            tool_filter=_exclude_book_hotel,
         ),
         AGUIToolset(tool_filter=FRONTEND_TOOLS),
+        mcp_server.book_hotel_identity_aware,
     ],
 )
 
@@ -67,8 +84,10 @@ agent over A2A. There is no human reading your words — your caller renders UI
 from your reply.
 
 ## Tools
-The MCP tools (list_cities, search_hotels, get_hotel, book_hotel, get_booking)
-are the ONLY source of hotel data. Never invent hotels, prices, or booking ids.
+list_cities, search_hotels, get_hotel, get_booking are the ONLY source of
+hotel data. Never invent hotels, prices, or booking ids. Book with
+book_hotel_identity_aware (applies the caller's loyalty discount automatically
+when the delegated identity carries one).
 
 ## Responding
 - After a search, your reply MUST include the full hotels list as JSON,
@@ -84,8 +103,10 @@ a2a_agent = Agent(
     description="Hotel specialist: search and book hotels in NYC, LAX, MIA, LHR, SFO and ORD.",
     instruction=A2A_INSTRUCTION,
     tools=[
-        MCPToolset(
+        McpToolset(
             connection_params=StreamableHTTPConnectionParams(url=MCP_SELF_URL),
+            tool_filter=_exclude_book_hotel,
         ),
+        mcp_server.book_hotel_identity_aware,
     ],
 )

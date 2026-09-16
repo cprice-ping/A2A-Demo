@@ -5,19 +5,33 @@ from __future__ import annotations
 import os
 
 from google.adk.agents import Agent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StreamableHTTPConnectionParams
+from google.adk.tools.mcp_tool.mcp_toolset import McpToolset, StreamableHTTPConnectionParams
 from ag_ui_adk import AGUIToolset
+
+from . import mcp_server
 
 MCP_SELF_URL = os.environ.get("MCP_SELF_URL", "http://localhost:8080/mcp")
 
 FRONTEND_TOOLS = ["render_flight_search", "render_flight_booking"]
 
+# The MCP server's book_flight is excluded from what these agents see: it
+# runs over a separate HTTP hop where the middleware's identity contextvars
+# are empty, so it can never apply loyalty. book_flight_identity_aware below
+# is a native ADK tool the agent calls instead — it runs IN the A2A request's
+# async context, where identity + the raw token are actually set. MCP still
+# serves plain book_flight to non-agent HTTP callers.
+def _exclude_book_flight(tool, readonly_context=None) -> bool:
+    return tool.name != "book_flight"
+
+
 INSTRUCTION = """
 You are flight_agent, a flight search and booking assistant.
 
 ## Tools
-- The MCP tools (list_airports, search_flights, get_flight, book_flight, get_booking)
-  are the ONLY source of flight data. Never invent flights, prices, or booking ids.
+- list_airports, search_flights, get_flight, get_booking are the ONLY source
+  of flight data. Never invent flights, prices, or booking ids.
+- book_flight_identity_aware books a flight (applies the caller's loyalty
+  discount automatically when they're signed in — nothing else to do for that).
 - The render_* tools are FRONTEND tools: the user's chat UI renders their arguments
   as visual cards. Their results mean "rendered OK" — do not restate the data.
 
@@ -33,7 +47,8 @@ You are flight_agent, a flight search and booking assistant.
    filter the rendered list yourself only if the tool can't.
 
 ## Booking procedure
-1. Confirm the flight and passenger count with the user BEFORE book_flight.
+1. Confirm the flight and passenger count with the user BEFORE calling
+   book_flight_identity_aware.
 2. After a successful booking, call render_flight_booking with the booking object
    VERBATIM, and reply with one sentence including the booking id.
 3. If a tool returns {"error": ...}, tell the user plainly what went wrong and
@@ -49,10 +64,12 @@ root_agent = Agent(
     description="Flight specialist: search and book flights between SFO, LAX, JFK, ORD, MIA and LHR.",
     instruction=INSTRUCTION,
     tools=[
-        MCPToolset(
+        McpToolset(
             connection_params=StreamableHTTPConnectionParams(url=MCP_SELF_URL),
+            tool_filter=_exclude_book_flight,
         ),
         AGUIToolset(tool_filter=FRONTEND_TOOLS),
+        mcp_server.book_flight_identity_aware,
     ],
 )
 
@@ -66,9 +83,10 @@ agent over A2A. There is no human reading your words — your caller renders UI
 from your reply.
 
 ## Tools
-The MCP tools (list_airports, search_flights, get_flight, book_flight,
-get_booking) are the ONLY source of flight data. Never invent flights, prices,
-or booking ids.
+list_airports, search_flights, get_flight, get_booking are the ONLY source of
+flight data. Never invent flights, prices, or booking ids. Book with
+book_flight_identity_aware (applies the caller's loyalty discount automatically
+when the delegated identity carries one).
 
 ## Responding
 - Resolve city names to airport codes with list_airports first.
@@ -85,8 +103,10 @@ a2a_agent = Agent(
     description="Flight specialist: search and book flights between SFO, LAX, JFK, ORD, MIA and LHR.",
     instruction=A2A_INSTRUCTION,
     tools=[
-        MCPToolset(
+        McpToolset(
             connection_params=StreamableHTTPConnectionParams(url=MCP_SELF_URL),
+            tool_filter=_exclude_book_flight,
         ),
+        mcp_server.book_flight_identity_aware,
     ],
 )

@@ -141,7 +141,9 @@ def lookup_loyalty(subject_token: str) -> dict | None:
         return None
     data = resp.json()
     for link in data.get("linked_loyalty", []):
-        if link.get("program") == "flights":
+        # This is the hotel agent: match the hotel program link, not flights
+        # (the planner profile store keys programs by domain).
+        if link.get("program") == "hotels":
             member_id = link.get("member_id", "")
             member = MEMBERS.get(member_id)
             if member:
