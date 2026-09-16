@@ -1,7 +1,25 @@
 # GCP deployment: planner in AWS k8s, specialists in GAP
 
-Draft topology + phased plan. Open dials are marked ❓ — they gate the
-phase that needs them, not the whole plan.
+Draft topology + phased plan. Decisions locked in P0 are marked ✅; the
+remaining dials are marked ❓ — they gate the phase that needs them.
+
+## Locked decisions (P0)
+
+- **GAP project/location**: `projects/3682147732/locations/us-west1`
+  (existing GAP deployments live there; redeploy with the SDK's
+  upgrade path to preserve `reasoningEngineId`).
+- **Audiences**: stable resource URIs — `a2a://flights` and `a2a://hotels`
+  for the GAP targets. The AS stamps these as `aud`; specialists validate
+  their own URI in-agent; P1AZ rows key on them (stable across redeploys,
+  unlike GAP's resource-ID URLs). The local k8s specialists, if any remain,
+  keep URL audiences; both fit the same AS.
+- **Planner hostname**: `a2a-travel-planner.ping-devops.com` — mirrors the
+  AS's ingress convention (`a2a-token-as.ping-devops.com`, same
+  `nginx-public` class, same ELB, cert-manager ClusterIssuers available).
+- **Cluster facts (discovered)**: EKS `us-east-2`, OIDC issuer
+  `https://oidc.eks.us-east-2.amazonaws.com/id/9ACBE86EA026DE86EFC05A61A5F83B30`,
+  workload namespace `ping-devops-cprice` (AS pattern to mirror:
+  deployment + ClusterIP + `nginx-public` ingress + cert-manager TLS).
 
 ## Topology
 
@@ -72,18 +90,13 @@ already parameterizes card URLs, audiences, and the profile URL.
 
 ## Phases
 
-**P0 — decisions (gates everything downstream)**
-- ❓ GAP project (Agent Runtime API enabled) and region
-- ❓ Specialist hostnames/audiences: the `aud` the AS will stamp for GAP
-  targets (stable resource URIs we choose, e.g.
-  `a2a://flights/gap` — or the GAP card URL once known)
-- ❓ Planner public hostname (AWS k8s ingress) and UI host
+**P0 — decisions** ✅ (see Locked decisions above)
 
-**P1 — WIF: AWS k8s → Google (keyless)**
-Register the cluster's OIDC issuer with Google STS (workload identity
-pool + provider), map a k8s service account to a Google SA, grant
-`roles/aiplatform.user` in the GAP project. If the cluster were GKE this
-is one flag; on AWS it's pool/provider setup (~once).
+**P1 — WIF: EKS → Google (keyless)**
+Cluster OIDC issuer (above) → Google STS workload identity pool + provider;
+map k8s SA (`ping-devops-cprice/travel-planner`) → Google SA; grant
+`roles/aiplatform.user` in the GAP project. Prereqs confirmed: issuer
+reachable, namespace exists, `gcloud` authed.
 
 **P2 — GAP specialists pilot** (one first: flight-agent)
 Code changes above → `gap/deploy_flight.py` (vertexai SDK,
@@ -93,12 +106,15 @@ metadata + loyalty chain end-to-end.
 
 **P3 — planner to k8s**
 Image build/push; manifests mirror `token-exchange/` (deployment,
-service, ingress+TLS, secrets from Secret Manager or k8s secret);
+service, `nginx-public` ingress with TLS for
+`a2a-travel-planner.ping-devops.com`, secrets from k8s secret);
 `FLIGHT/HOTEL_AGENT_CARD_URL` → GAP endpoints with **authenticated
 fetch** (planner code change: attach WIF-derived Google token when the
 anonymous fetch 401s — keep card-derived PingOne discovery working off
-the fetched card); `PLANNER_PROFILE_URL` public via ingress (specialists
-in GAP must reach it); `AUTHORIZED_ACTORS` / audiences updated.
+the fetched card); `PLANNER_PROFILE_URL` =
+`https://a2a-travel-planner.ping-devops.com/api/profile/loyalty`
+(specialists in GAP must reach it); `AUTHORIZED_ACTORS` / audiences →
+`a2a://flights` / `a2a://hotels`.
 
 **P4 — AS + P1AZ re-point**
 New P1AZ rows for the GAP audiences (delegation + loyalty chain rows
@@ -124,8 +140,8 @@ not human surfaces). Trace panel tells the two-tier story per hop.
 |---|---|---|
 | `PUBLIC_BASE_URL` | `http://flight-agent:8080` | GAP card URL / k8s ingress URL |
 | `FLIGHT/HOTEL_AGENT_CARD_URL` | compose DNS | GAP authenticated-card endpoints |
-| `P1_*_AUDIENCE` | `http://localhost:8080` | chosen resource URIs ❓ |
-| `PLANNER_PROFILE_URL` | `http://travel-planner:8080/...` | planner ingress URL |
+| `P1_*_AUDIENCE` | `http://localhost:8080` | `a2a://flights` / `a2a://hotels` |
+| `PLANNER_PROFILE_URL` | `http://travel-planner:8080/...` | `https://a2a-travel-planner.ping-devops.com/api/profile/loyalty` |
 | `GOOGLE_API_KEY` | `.env` | Secret Manager → GAP env |
 | PingOne bridge secrets | `.env` | Secret Manager / k8s secret |
 | model auth | `GOOGLE_API_KEY` | same (or Vertex+ADC on GAP natively) |
