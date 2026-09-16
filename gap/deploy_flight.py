@@ -32,7 +32,6 @@ STAGING_BUCKET = os.environ.get(
 )
 
 # App runtime configuration: GAP runs our module and calls build_gap_agent().
-# App runtime configuration: GAP runs our module and calls build_gap_agent().
 # pydantic + cloudpickle are required by the runtime's pickle/build pipeline
 # (the SDK warns on missing requirements at create time; missing them fails
 # engine start with only a generic "failed to start" error).
@@ -46,12 +45,12 @@ REQUIREMENTS = [
     "cloudpickle",
 ]
 
-# The flight_agent package itself, staged into the image alongside the
-# pickled agent: cloudpickle stores flight_agent.* by reference (importable
-# modules aren't serialized by value), so the runtime image must contain
-# the package or unpickling dies with ModuleNotFoundError — surfacing only
-# as the generic "failed to start" engine error. Resolved absolute in main().
-EXTRA_PACKAGES = None  # set in main(): absolute path to flight-agent/src
+# The flight_agent package is staged via extra_packages (set in main()).
+# cloudpickle stores flight_agent.* by reference (importable modules aren't
+# serialized by value), so the runtime image must contain the package or
+# unpickling dies with ModuleNotFoundError — surfacing only as the generic
+# "failed to start" engine error (the real cause is in the engine's stderr
+# log under aiplatform.googleapis.com/reasoning_engine_stderr).
 
 
 def _ensure_staging_bucket() -> None:
@@ -86,7 +85,14 @@ def main() -> None:
     package_src = os.path.join(repo_root, "flight-agent", "src")
     sys.path.insert(0, package_src)
     from flight_agent.gap_agent import gap_agent  # noqa: E402
-    extra_packages = [package_src]
+    # extra_packages takes the PACKAGE directory itself ("a local file, a
+    # whole directory, or a wheel" per the docs) — the stager tars it with
+    # arcname == its basename, so the bundle must contain flight_agent/ at
+    # the top level. Passing the src/ PARENT nested it as
+    # flight-agent/src/flight_agent/ and the runtime import died with
+    # "No module named 'flight_agent'" (visible only in the engine's
+    # stderr log — the API error is generic).
+    extra_packages = [os.path.join(package_src, "flight_agent")]
 
     if action == "create":
         # agentplatform (post-2.0 SDK): client.runtimes.create(runtime=None,
