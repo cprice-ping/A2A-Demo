@@ -68,30 +68,10 @@ def book_flight(flight_id: str, passengers: int = 1) -> dict:
     return {"booking": booking}
 
 
-async def book_flight_identity_aware(flight_id: str, passengers: int = 1) -> dict:
-    """ADK-native booking wrapper that runs INSIDE the A2A request context.
-
-    The MCP server is a separate HTTP hop, so the middleware's contextvars
-    (current_identity / current_token) are empty by the time an MCP tool
-    executes — the delegated identity never reaches book_flight there. This
-    wrapper runs on the agent itself, in the /a2a request's async context,
-    where the middleware's contextvars ARE set: identity + raw token ride
-    along, the loyalty pull gets a real person token, and the discount
-    lands. Falls through to the plain booking path when unauthenticated.
-    """
-    identity = auth_module.current_identity.get()
-    loyalty = None
-    if identity and identity.get("sub") and auth_module.current_token.get():
-        from .loyalty import lookup_loyalty
-
-        loyalty = lookup_loyalty(auth_module.current_token.get())
-    flight = data.get_flight(flight_id)
-    if not flight:
-        return {"error": f"Unknown flight_id {flight_id!r}"}
-    if not 1 <= passengers <= 9:
-        return {"error": "passengers must be between 1 and 9"}
-    booking = store.create_flight_booking(flight, passengers, loyalty=loyalty)
-    return {"booking": booking}
+# book_flight_identity_aware lives in tools.py (no fastmcp import) so the
+# GAP flavor can share it without dragging in the MCP server; re-exported
+# here for the self-hosted agent's tool list.
+from .tools import book_flight_identity_aware  # noqa: E402,F401
 
 
 @mcp.tool

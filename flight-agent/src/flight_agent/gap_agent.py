@@ -29,9 +29,9 @@ from google.adk.agents import LlmAgent
 from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor
 from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
 
-from . import mcp_server
 from .api import data
 from .card import build_card
+from .tools import book_flight_identity_aware
 from .trace import record
 
 
@@ -131,7 +131,7 @@ def _build_gap_agent() -> LlmAgent:
             list_airports,
             search_flights,
             get_flight,
-            mcp_server.book_flight_identity_aware,
+            book_flight_identity_aware,
             get_booking,
         ],
     )
