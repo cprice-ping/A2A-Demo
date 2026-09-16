@@ -3,13 +3,11 @@ services:
     build: ./flight-agent
     ports: ["8080:8080"]
     environment:
-      # Model via Vertex AI + ADC (keyless). Requires:
-      #   gcloud auth application-default login
-      #   GOOGLE_CLOUD_PROJECT pointing at a project with Vertex AI enabled
-      GOOGLE_GENAI_USE_VERTEXAI: "true"
-      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
-      GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-us-central1}
-      GOOGLE_APPLICATION_CREDENTIALS: /gac/application_default_credentials.json
+      # Model: Gemini Developer API (static key). The keyless Vertex+ADC path
+      # is documented at the bottom of this file for deployments that prefer
+      # it; a static key removes the gcloud login / bind-mount staleness
+      # failure modes the demo previously hit.
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:?set GOOGLE_API_KEY in .env or your shell}
       PUBLIC_BASE_URL: http://flight-agent:8080
       MCP_SELF_URL: http://localhost:8080/mcp
       CORS_ORIGINS: http://localhost:5173
@@ -30,8 +28,6 @@ services:
       P1_PROFILE_AUDIENCE: ${P1_PROFILE_AUDIENCE:-planner-profile-api}
       P1_PROFILE_SCOPE: ${P1_PROFILE_SCOPE:-loyalty:read}
       PLANNER_PROFILE_URL: http://travel-planner:8080/api/profile/loyalty
-    volumes:
-      - ${ADC_FILE:-~/.config/gcloud/application_default_credentials.json}:/gac/application_default_credentials.json:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health')"]
       interval: 15s
@@ -43,9 +39,8 @@ services:
     build: ./hotel-agent
     ports: ["8081:8080"]
     environment:
-      # The only place a Gemini API key is needed in this demo. To use the
-      # keyless Vertex path instead, set the GOOGLE_GENAI_* vars like
-      # flight-agent and mount ADC.
+      # Model: Gemini Developer API (static key) — same as the other two
+      # services now, so one key drives all three agents.
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:?set GOOGLE_API_KEY in .env or your shell}
       PUBLIC_BASE_URL: http://hotel-agent:8080
       MCP_SELF_URL: http://localhost:8080/mcp
@@ -78,10 +73,8 @@ services:
     build: ./travel-planner
     ports: ["8082:8080"]
     environment:
-      GOOGLE_GENAI_USE_VERTEXAI: "true"
-      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
-      GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-us-central1}
-      GOOGLE_APPLICATION_CREDENTIALS: /gac/application_default_credentials.json
+      # Model: Gemini Developer API (static key) — same as the specialists.
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:?set GOOGLE_API_KEY in .env or your shell}
       PUBLIC_BASE_URL: http://travel-planner:8080
       FLIGHT_AGENT_CARD_URL: http://flight-agent:8080/a2a/.well-known/agent-card.json
       HOTEL_AGENT_CARD_URL: http://hotel-agent:8080/a2a/.well-known/agent-card.json
@@ -106,8 +99,6 @@ services:
       P1_HOTELS_BRIDGE_CLIENT_SECRET: ${P1_HOTELS_BRIDGE_CLIENT_SECRET:-}
       P1_HOTELS_AUDIENCE: ${P1_HOTELS_AUDIENCE:-http://localhost:8081}
       P1_HOTELS_SCOPE: ${P1_HOTELS_SCOPE:-a2a:book}
-    volumes:
-      - ${ADC_FILE:-~/.config/gcloud/application_default_credentials.json}:/gac/application_default_credentials.json:ro
     depends_on:
       flight-agent:
         condition: service_healthy
@@ -119,3 +110,21 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+# ---- Alternative model auth: Vertex AI + ADC (keyless) ---------------------
+#
+# All three services use the Gemini Developer API (GOOGLE_API_KEY) by default.
+# For a keyless deployment, replace each service's GOOGLE_API_KEY line with
+# this block and re-add the ADC volume mount:
+#
+#   GOOGLE_GENAI_USE_VERTEXAI: "true"
+#   GOOGLE_CLOUD_PROJECT: <project with Vertex AI enabled>
+#   GOOGLE_CLOUD_LOCATION: us-central1
+#   GOOGLE_APPLICATION_CREDENTIALS: /gac/application_default_credentials.json
+#   volumes:
+#     - ~/.config/gcloud/application_default_credentials.json:/gac/application_default_credentials.json:ro
+#
+# Prereq: gcloud auth application-default login. Trade-offs: keyless and
+# billed through the project, but the credential is a personal OAuth grant
+# that expires (interactive re-login) and goes stale inside containers via
+# the bind-mount inode (restart the service after re-login).
