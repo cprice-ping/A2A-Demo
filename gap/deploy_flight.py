@@ -58,14 +58,8 @@ def _ensure_staging_bucket() -> None:
 
 
 def _client():
-    # agentplatform.Client is the post-2.0 name; vertexai.Client still works
-    # but warns. Prefer the new name, fall back for older installs.
-    try:
-        from agentplatform import Client
-    except ImportError:
-        import vertexai
+    from agentplatform import Client
 
-        return vertexai.Client(project=PROJECT_NUMBER, location=LOCATION)
     return Client(project=PROJECT_NUMBER, location=LOCATION)
 
 
@@ -82,7 +76,10 @@ def main() -> None:
     from flight_agent.gap_agent import gap_agent  # noqa: E402
 
     if action == "create":
-        remote = client.agent_engines.create(
+        # agentplatform (post-2.0 SDK): client.runtimes.create(runtime=None,
+        # agent=…, config=AgentRuntimeConfig-dict) replaces vertexai's
+        # client.agent_engines.create.
+        remote = client.runtimes.create(
             agent=gap_agent,
             config={
                 "display_name": DISPLAY_NAME,
@@ -90,13 +87,11 @@ def main() -> None:
                 "staging_bucket": f"gs://{STAGING_BUCKET}",
             },
         )
-        # create(agent_engine=None, agent=…, config=…) — agent_engine is
-        # None for a fresh deployment.
         print("created:", remote.name)
     elif action == "upgrade":
         # Preserve the existing reasoningEngineId: resolve by display name.
         # The list API doesn't filter by display_name server-side; scan locally.
-        engines = list(client.agent_engines.list(config={}))
+        engines = list(client.runtimes.list(config={}))
         if not engines:
             raise SystemExit("no existing agent engines found; run create first")
         target = None
@@ -108,8 +103,8 @@ def main() -> None:
                 break
         if target is None:
             raise SystemExit(f"{DISPLAY_NAME} not found; run create first")
-        remote = client.agent_engines.update(
-            target.name,
+        remote = client.runtimes.update(
+            name=target.name,
             agent=gap_agent,
             config={
                 "requirements": REQUIREMENTS,
@@ -121,7 +116,7 @@ def main() -> None:
         name = sys.argv[2] if len(sys.argv) > 2 else None
         if not name:
             raise SystemExit("card <reasoningEngine resource name>")
-        remote = client.agent_engines.get(
+        remote = client.runtimes.get(
             name=f"projects/{PROJECT_NUMBER}/locations/{LOCATION}/reasoningEngines/{name}"
         )
         card = remote.handle_authenticated_agent_card()
