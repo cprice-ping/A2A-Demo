@@ -99,8 +99,32 @@ map k8s SA (`ping-devops-cprice/travel-planner`) → Google SA; grant
 reachable, namespace exists, `gcloud` authed.
 
 **P2 — GAP specialists pilot** (one first: flight-agent)
-Code changes above → `gap/deploy_flight.py` (vertexai SDK,
-`A2aAgent`, requirements incl. `google-adk[a2a]`) → smoke via SDK:
+
+**Design stance: native-first.** Specialists deploy as if they were an
+enterprise GAP deployment — platform features over custom code wherever
+GAP provides one. Concretely:
+
+- **A2aAgent template** (native), not BYOC — the runtime fronts serving,
+  IAM, and the authenticated card; we write no serving container.
+- **Vertex model path** — GAP forces `GOOGLE_GENAI_USE_VERTEXAI=1` and
+  bills through the runtime's Google identity; we don't fight it.
+- **Deploy via the SDK** (`agentplatform.Client.runtimes`), staged to
+  GCS, redeployed with the upgrade path to preserve `reasoningEngineId`
+  — the platform's own lifecycle, not ours.
+- **Identity-in-message over middleware**: GAP owns the platform edge
+  (Google IAM); our PingOne delegation travels in A2A request metadata
+  and is validated in-agent (the one piece that must be custom, because
+  it IS the demo's thesis).
+- **Discovery & governance**: specialists register in **Agent
+  Registry**; the planner discovers via authenticated cards. No custom
+  card-hosting workarounds.
+
+Deferred (parked): standalone MCP services + Agent Registry
+registration + Ping AI Agent Gateway enforcement in front of tools.
+The tools.py/mcp_server split keeps that migration cheap, but the
+pilot ships in-process.
+
+Code changes above → `gap/deploy_flight.py` → smoke via SDK:
 `handle_authenticated_agent_card()` + `message/send` with identity in
 metadata + loyalty chain end-to-end.
 
@@ -142,22 +166,44 @@ not human surfaces). Trace panel tells the two-tier story per hop.
 | `FLIGHT/HOTEL_AGENT_CARD_URL` | compose DNS | GAP authenticated-card endpoints |
 | `P1_*_AUDIENCE` | `http://localhost:8080` | `a2a://flights` / `a2a://hotels` |
 | `PLANNER_PROFILE_URL` | `http://travel-planner:8080/...` | `https://a2a-travel-planner.ping-devops.com/api/profile/loyalty` |
-| `GOOGLE_API_KEY` | `.env` | Secret Manager → GAP env |
+| `GOOGLE_API_KEY` | `.env` | n/a on GAP (Vertex via runtime identity) |
 | PingOne bridge secrets | `.env` | Secret Manager / k8s secret |
+
+## Parked: tools as a standalone MCP service (post-pilot)
+
+Once the GAP pilot is green, the enterprise-shaped evolution is to move
+specialist tools OUT of process: booking/search as a standalone MCP
+service (Cloud Run), registered in **Agent Registry** for governed
+discovery, with **Ping AI Agent Gateway** as the enforcement point in
+front of the booking APIs — delegated PingOne token validated at the
+tool boundary (or by the gateway), per-tool least privilege, audit.
+This inverts the earlier contextvar lesson: identity travels to the
+tool layer as a bearer credential, not request-scoped contextvars.
+The tools.py / mcp_server.py split keeps this migration cheap — only
+the transport changes.
 | model auth | `GOOGLE_API_KEY` | same (or Vertex+ADC on GAP natively) |
 
 ## Risks / open questions
 
-1. ❓ Can `create_agent_card` / `A2aAgent` carry our `securitySchemes`?
-   If not → planner-side fallback target config for GAP targets.
-2. A2A version: GAP A2A is Pre-GA; Gemini Enterprise registration wants
-   v0.3 while our SDK is newer — check which the Agent Runtime endpoint
-   speaks and whether the compat package is needed.
+1. ✅ RESOLVED: `create_agent_card` accepts a full card dict and our
+   `pingone` securitySchemes survive the GAP wrap (verified locally).
+2. A2A version: GAP A2A is Pre-GA and the A2aAgent template REQUIRES
+   protocol 1.0 / HTTP+JSON (lifted in gap_agent.py; the self-hosted
+   card keeps 0.3). Planner-side client compatibility still to verify.
 3. Non-streaming fallback in ADK `RemoteA2aAgent` (assumed automatic via
-   card capabilities — verify).
-4. In-message identity transport (metadata key / extension) — pick one
-   convention and document it in the card/topology.
+   card capabilities — verify in the pilot smoke test).
+4. ✅ RESOLVED: identity rides SendMessageRequest.metadata key
+   `a2a_demo_identity` (planner: a2a_request_meta_provider; GAP agent:
+   executor adapter validates via auth.validate_token).
 5. GAP egress to AS (public ✓) and planner profile API (public via
    ingress ✓) — no private-network work expected.
 6. `AG-UI` disappears on specialists by design (agent-only); planner
    keeps AG-UI + all render cards — UI rework limited to honesty states.
+7. Deploy-loop learnings (encoding here so they aren't relearned):
+   engine-start failures are generic at the API — the real cause is in
+   the engine's stderr log (`aiplatform.googleapis.com/reasoning_engine_stderr`);
+   extra_packages entries must be RELATIVE paths (tar.add stores paths
+   verbatim); the pickled agent references the source package, so
+   extra_packages must carry the package dir itself; pickle happens
+   BEFORE set_up (locks after set_up are unpicklable); the GAP import
+   graph must be free of self-hosted-only deps (fastmcp, ag_ui_adk).
