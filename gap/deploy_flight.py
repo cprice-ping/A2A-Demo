@@ -32,12 +32,18 @@ STAGING_BUCKET = os.environ.get(
 )
 
 # App runtime configuration: GAP runs our module and calls build_gap_agent().
+# App runtime configuration: GAP runs our module and calls build_gap_agent().
+# pydantic + cloudpickle are required by the runtime's pickle/build pipeline
+# (the SDK warns on missing requirements at create time; missing them fails
+# engine start with only a generic "failed to start" error).
 REQUIREMENTS = [
     "google-cloud-aiplatform[agent_engines]>=2.1,<3",
     "google-adk[a2a]>=2.9,<3",
     "a2a-sdk>=1.0",
     "pyjwt>=2.8",
     "httpx",
+    "pydantic>=2",
+    "cloudpickle",
 ]
 
 EXTRA_PACKAGES = ["../flight-agent/src"]  # the flight_agent package itself
