@@ -79,7 +79,7 @@ Planner: validates token (planner JWKS) → contextvar
 Planner ── reads each specialist's CARD: securitySchemes (token endpoint),
            securityRequirements (scopes), supported_interfaces (audience)
            → trace rows auth.card_security   ← A2A authn discovery
-Planner ── RFC 8693 at the TokenExchange-AS (token-as.ping-devops.com/as/token)
+Planner ── RFC 8693 at the TokenExchange-AS (a2a-token-as.ping-devops.com/as/token)
            subject_token = planner-user-token (PingOne JWT, validated at
                            planner JWKS by the AS)
            actor_token   = planner's bridge CC JWT at the TARGET tenant
@@ -133,13 +133,13 @@ scope**; per user: **Users → chris → password**):
 
 - Image: `pricecs/token-exchange-as:latest` (built from TokenExchange-AS;
   includes the PingOne CC actor patch — `client_id` fallback in the actor
-  path, subject path unchanged). Public issuer: `https://token-as.ping-devops.com`
+  path, subject path unchanged). Public issuer: `https://a2a-token-as.ping-devops.com`
   (JWKS at `/as/jwks`, metadata at `/.well-known/oauth-authorization-server`).
 - Exchange client: `TOKEN_CLIENT_ID=tokenexchange` + secret (shared by the
   planner and both specialists as `AS_CLIENT_ID/AS_CLIENT_SECRET`).
 - P1AZ worker: `token-as-p1az-worker` in the planner env,
   client `12437ae6-fc8d-4e01-b88e-f2dd79a445cd` (secret console-set).
-- AS-minted tokens: `iss=https://token-as.ping-devops.com`,
+- AS-minted tokens: `iss=https://a2a-token-as.ping-devops.com`,
   `sub`=person (planner-tenant UUID), `act.sub`=bridge client_id,
   `aud`=<specialist A2A URL or planner-profile-api>, `scope`, TTL 300s.
   Minimal by design — no email/roles copied.
