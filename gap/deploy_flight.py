@@ -85,14 +85,16 @@ def main() -> None:
     package_src = os.path.join(repo_root, "flight-agent", "src")
     sys.path.insert(0, package_src)
     from flight_agent.gap_agent import gap_agent  # noqa: E402
-    # extra_packages takes the PACKAGE directory itself ("a local file, a
-    # whole directory, or a wheel" per the docs) — the stager tars it with
-    # arcname == its basename, so the bundle must contain flight_agent/ at
-    # the top level. Passing the src/ PARENT nested it as
-    # flight-agent/src/flight_agent/ and the runtime import died with
-    # "No module named 'flight_agent'" (visible only in the engine's
-    # stderr log — the API error is generic).
-    extra_packages = [os.path.join(package_src, "flight_agent")]
+    # extra_packages takes the PACKAGE DIRECTORY, relative to the CURRENT
+    # WORKING DIRECTORY. The stager tars with tar.add(path) verbatim: an
+    # ABSOLUTE path stores "Users/cprice/.../flight_agent/" in the tarball
+    # (ground truth: the staged dependencies.tar.gz) and the container
+    # can't import it; a RELATIVE name stores "flight_agent/..." which
+    # unpacks importable. (Engine stderr: "Pickle load failed: Missing
+    # module ... No module named 'flight_agent'".) Chdir to the src dir
+    # for the staging call so the relative name resolves.
+    extra_packages = ["flight_agent"]  # relative → tars as flight_agent/...
+    os.chdir(package_src)
 
     if action == "create":
         # agentplatform (post-2.0 SDK): client.runtimes.create(runtime=None,
