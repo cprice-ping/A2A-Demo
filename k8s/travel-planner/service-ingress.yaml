@@ -1,0 +1,66 @@
+# travel-planner service + public ingress — mirrors a2a-token-as's
+# nginx-public/LE pattern. Proxy timeouts are LONG (AG-UI SSE and A2A
+# delegation run minutes, unlike the AS's 10s).
+apiVersion: v1
+kind: Service
+metadata:
+  name: a2a-travel-planner
+  namespace: ping-devops-cprice
+  labels:
+    app: a2a-travel-planner
+spec:
+  type: ClusterIP
+  selector:
+    app: a2a-travel-planner
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: a2a-travel-planner
+  namespace: ping-devops-cprice
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-pdo
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # AG-UI SSE + A2A delegation are long-lived; the planner's own httpx
+    # timeout is 600s. Keep ingress timeouts above it. (The AS's 10s
+    # timeouts are correct for token endpoints, not for a chat host.)
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "620"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off" # SSE needs unbuffered
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+spec:
+  ingressClassName: nginx-public
+  rules:
+    - host: a2a-travel-planner.ping-devops.com
+      http:
+        paths:
+          - backend:
+              service:
+                name: a2a-travel-planner
+                port:
+                  name: http
+            path: /agui
+            pathType: Prefix
+          - backend:
+              service:
+                name: a2a-travel-planner
+                port:
+                  name: http
+            path: /a2a
+            pathType: Prefix
+          - backend:
+              service:
+                name: a2a-travel-planner
+                port:
+                  name: http
+            path: /api
+            pathType: Prefix
+  tls:
+    - hosts:
+        - a2a-travel-planner.ping-devops.com
+      secretName: a2a-travel-planner-tls

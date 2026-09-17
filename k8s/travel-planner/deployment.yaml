@@ -1,0 +1,130 @@
+# travel-planner on EKS — mirrors the a2a-token-as deployment pattern
+# (same namespace, same hardening, same style), with the planner's own
+# surfaces: AG-UI SSE (long-lived), /a2a (planner card), /api (trace +
+# profile), and the GAP hybrid env (relationship targets).
+#
+# Secrets: created out-of-band (see README in this dir) — never committed.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: a2a-travel-planner
+  namespace: ping-devops-cprice
+  labels:
+    app: a2a-travel-planner
+spec:
+  minReadySeconds: 10
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: a2a-travel-planner
+  template:
+    metadata:
+      labels:
+        app: a2a-travel-planner
+    spec:
+      automountServiceAccountToken: true # WIF: the SA token IS the credential
+      serviceAccountName: travel-planner
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: travel-planner
+          image: pricecs/a2a-travel-planner:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # Model: Gemini Developer API (same key as the local flavor).
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef: { name: a2a-travel-planner-credentials, key: GOOGLE_API_KEY }
+            - name: PUBLIC_BASE_URL
+              value: https://a2a-travel-planner.ping-devops.com
+            - name: FLIGHT_AGENT_CARD_URL
+              value: https://a2a-token-as.ping-devops.com/.well-known/oauth-authorization-server # placeholder; GAP relationships supersede
+            - name: HOTEL_AGENT_CARD_URL
+              value: https://a2a-token-as.ping-devops.com/.well-known/oauth-authorization-server
+            - name: CORS_ORIGINS
+              value: http://localhost:5173
+            # Identity: planner tenant validates the UI token; specialists
+            # receive AS-minted delegation tokens (RFC 8693).
+            - name: P1_PLANNER_ISSUER
+              valueFrom:
+                secretKeyRef: { name: a2a-travel-planner-credentials, key: P1_PLANNER_ISSUER }
+            # GAP business relationships (P0-locked audiences)
+            - name: GAP_FLIGHT_ENGINE
+              value: projects/3682147732/locations/us-west1/reasoningEngines/268377594200588288
+            - name: GAP_FLIGHT_AUDIENCE
+              value: a2a://flights
+            - name: GAP_FLIGHT_SCOPE
+              value: a2a:book
+            - name: GAP_HOTEL_ENGINE
+              value: projects/3682147732/locations/us-west1/reasoningEngines/6963541390240251904
+            - name: GAP_HOTEL_AUDIENCE
+              value: a2a://hotels
+            - name: GAP_HOTEL_SCOPE
+              value: a2a:book
+            # TokenExchange-AS (all exchanges: delegation + loyalty pulls)
+            - name: AS_ISSUER
+              value: https://a2a-token-as.ping-devops.com
+            - name: AS_CLIENT_ID
+              valueFrom:
+                secretKeyRef: { name: a2a-travel-planner-credentials, key: AS_CLIENT_ID }
+            - name: AS_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: a2a-travel-planner-credentials, key: AS_CLIENT_SECRET }
+            # Planner's bridge client registrations at each specialist tenant
+            - name: P1_FLIGHTS_ISSUER
+              valueFrom:
+                secretKeyRef: { name: a2a-travel-planner-credentials, key: P1_FLIGHTS_ISSUER }
+            - name: P1_FLIGHTS_BRIDGE_CLIENT_ID
+              valueFrom:
+                secretKeyRef: { name: a2a-travel-planner-credentials, key: P1_FLIGHTS_BRIDGE_CLIENT_ID }
+            - name: P1_FLIGHTS_BRIDGE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: a2a-travel-planner-credentials, key: P1_FLIGHTS_BRIDGE_CLIENT_SECRET }
+            - name: P1_HOTELS_ISSUER
+              valueFrom:
+                secretKeyRef: { name: a2a-travel-planner-credentials, key: P1_HOTELS_ISSUER }
+            - name: P1_HOTELS_BRIDGE_CLIENT_ID
+              valueFrom:
+                secretKeyRef: { name: a2a-travel-planner-credentials, key: P1_HOTELS_BRIDGE_CLIENT_ID }
+            - name: P1_HOTELS_BRIDGE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: a2a-travel-planner-credentials, key: P1_HOTELS_BRIDGE_CLIENT_SECRET }
+            # Profile API audience (specialists' loyalty pulls)
+            - name: P1_PROFILE_AUDIENCE
+              value: planner-profile-api
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          readinessProbe:
+            httpGet: { path: /a2a/.well-known/agent-card.json, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 5
+          livenessProbe:
+            httpGet: { path: /a2a/.well-known/agent-card.json, port: http }
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 5
+          startupProbe:
+            httpGet: { path: /a2a/.well-known/agent-card.json, port: http }
+            periodSeconds: 3
+            timeoutSeconds: 3
+            failureThreshold: 30
