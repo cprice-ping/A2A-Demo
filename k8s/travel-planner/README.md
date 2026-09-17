@@ -21,6 +21,14 @@ Manifests mirroring the `a2a-token-as` pattern (same namespace
 3. **k8s SA for WIF** (P1 runbook, already done):
    kubectl -n ping-devops-cprice get sa travel-planner  # annotated with the Google SA
 
+   The workloadIdentityUser binding MUST use the token's real `sub`:
+   EKS/GKE SA tokens carry sub = system:serviceaccount:<ns>:<name>, so
+   the principal is .../subject/system:serviceaccount:ping-devops-cprice:travel-planner
+   (NOT .../subject/kubernetes.io/serviceaccount/<ns>/<name> — that
+   subject never occurs in a real token and the binding matches nothing;
+   surfaced as IAM_PERMISSION_DENIED iam.serviceAccounts.getAccessToken
+   at the impersonation step).
+
 3b. **WIF credential config** (ConfigMap the deployment mounts):
 
    gcloud beta iam workload-identity-pools create-cred-config \
