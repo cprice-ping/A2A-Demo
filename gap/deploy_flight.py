@@ -159,7 +159,8 @@ def main() -> None:
         if target is None:
             raise SystemExit(f"{DISPLAY_NAME} not found; run create first")
         remote = client.runtimes.update(
-            name=target.name,
+            # Runtime wrapper has no .name — the resource name lives on api_resource.
+            name=target.api_resource.name,
             agent=gap_agent,
             config={
                 "requirements": REQUIREMENTS,
