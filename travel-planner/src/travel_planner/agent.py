@@ -46,11 +46,86 @@ def fetch_card(url: str) -> AgentCard:
     record("travel-planner", "a2a.card_fetch", {"url": url})
     resp = httpx.get(url, timeout=15.0)
     resp.raise_for_status()
+    return _parse_card(resp.content)
+
+
+def _parse_card(content: bytes) -> AgentCard:
     from a2a.compat.v0_3.conversions import to_core_agent_card
     from a2a.compat.v0_3.types import AgentCard as CompatCard
 
-    compat = CompatCard.model_validate_json(resp.content)
+    compat = CompatCard.model_validate_json(content)
     return to_core_agent_card(compat)
+
+
+def _google_credentials() -> str:
+    """Google bearer for the GAP platform edge.
+
+    ADC covers local runs; on the EKS planner the k8s service account
+    mints it via WIF (the google.auth library reads the injected
+    projected token + audience annotation and exchanges it at STS —
+    no keys stored anywhere).
+    """
+    import google.auth
+    import google.auth.transport.requests
+
+    creds, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    if not creds.valid:
+        creds.refresh(google.auth.transport.requests.Request())
+    return creds.token
+
+
+def fetch_gap_card(url: str) -> AgentCard | None:
+    """Fetch a GAP agent's AUTHENTICATED card (platform-credential path).
+
+    GAP does not serve anonymous cards — discovery itself is IAM-governed:
+    the planner presents its Google credential (WIF-derived on EKS, ADC
+    locally) to the engine's /v1/card endpoint. The served card is a
+    fixed field allowlist (no securitySchemes — the contract lives in
+    TARGET_RELATIONSHIPS, see relationships.py), but it carries the
+    skills + the protocol-1.0 HTTP+JSON interface RemoteA2aAgent needs.
+    """
+    record("travel-planner", "a2a.card_fetch", {"url": url, "auth": "google"})
+    try:
+        resp = httpx.get(
+            url,
+            headers={"Authorization": f"Bearer {_google_credentials()}"},
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+    except Exception as exc:
+        record(
+            "travel-planner",
+            "a2a.card_fetch_failed",
+            {"url": url, "error": str(exc)},
+        )
+        return None
+    # The GAP card is 1.0-protocol JSON; parse via the 1.x proto directly.
+    from a2a.types import AgentCard as CoreCard
+    from google.protobuf.json_format import Parse
+
+    return Parse(resp.content, CoreCard())
+
+
+def _fix_gap_card_url(card: AgentCard, a2a_base: str) -> AgentCard:
+    """Point the GAP card's interface at the relationship-derived base.
+
+    GAP serves the card with an interface URL carrying whatever project/
+    region were ambient at pickle time (observed: us-central1 +
+    project-ID form) — not necessarily the engine's real location. The
+    relationship record knows the engine resource name, hence the
+    authoritative base; rewrite the card rather than trusting the wire.
+    """
+    from a2a.types import AgentInterface
+
+    ifaces = list(card.supported_interfaces)
+    if ifaces:
+        first = ifaces[0]
+        first.url = a2a_base
+        del card.supported_interfaces[:]
+        card.supported_interfaces.extend([first] + ifaces[1:])
+    return card
 
 
 def card_security(card: AgentCard, target: str) -> dict[str, Any]:
@@ -108,6 +183,18 @@ def card_security(card: AgentCard, target: str) -> dict[str, Any]:
     return {"token_url": token_url, "audience": audience, "scopes": scopes}
 
 
+def _identity_meta_provider(ctx: Any, message: Any) -> dict[str, Any]:
+    """Attach the delegated PingOne identity to the A2A request metadata.
+
+    The GAP specialists validate this token in-agent (their executor
+    adapter reads SendMessageRequest.metadata["a2a_demo_identity"]); the
+    self-hosted flavor ignores it (it gets the bearer at the edge) — the
+    metadata is harmless there, so one provider serves both flavors.
+    """
+    token = auth_module.user_token_var.get()
+    return {"a2a_demo_identity": token} if token else {}
+
+
 def _make_traced_client(target: str) -> httpx.AsyncClient:
     """AsyncClient recording full outbound A2A exchanges for the trace panel.
 
@@ -120,13 +207,24 @@ def _make_traced_client(target: str) -> httpx.AsyncClient:
     """
 
     async def log_request(request: httpx.Request) -> None:
-        # Identity: exchange the human's planner token at the target tenant
-        # and send the result as the A2A call's bearer. Card fetches
-        # (.well-known) stay anonymous.
-        if (
-            ".well-known" not in str(request.url.path)
-            and auth_module.user_token_var.get()
-        ):
+        # Identity at the GAP gateway: every reasoningEngines call (card
+        # + message:send) carries the GOOGLE bearer — the platform edge
+        # authenticates the caller. The PingOne delegated token rides
+        # in-message (meta provider), not as the bearer, on the GAP
+        # flavor. Self-hosted targets keep the bearer-at-the-edge model:
+        # exchange the human's token at the AS and send it as Bearer.
+        if "/reasoningEngines/" in str(request.url):
+            try:
+                request.headers["Authorization"] = (
+                    f"Bearer {_google_credentials()}"
+                )
+            except Exception as exc:
+                record(
+                    "travel-planner",
+                    "a2a.gap_auth_failed",
+                    {"url": str(request.url), "error": str(exc)},
+                )
+        elif auth_module.user_token_var.get():
             try:
                 token = auth_module.exchange_token(target, auth_module.user_token_var.get())
                 if token:
@@ -215,6 +313,64 @@ auth_module.TARGET_TENANTS["hotel-agent"]["security"] = card_security(
     hotel_card, "hotel-agent"
 )
 
+# ---- GAP targets (business-relationship mode) --------------------------------
+#
+# When a GAP relationship is declared in env, it SUPERSEDES the local
+# card target for that specialist: the card is fetched through Google's
+# authenticated path (platform credential), the contract (audience,
+# scope, token URL) comes from the relationship record — GAP cards
+# strip securitySchemes, and cross-org terms live in config, not on
+# the wire (see relationships.py + GCP-DEPLOYMENT.md).
+from .relationships import TARGET_RELATIONSHIPS  # noqa: E402
+
+if "flight-agent" in TARGET_RELATIONSHIPS:
+    rel = TARGET_RELATIONSHIPS["flight-agent"]
+    gap_card = fetch_gap_card(rel["card_url"])
+    if gap_card is not None:
+        from .relationships import _engine_a2a_base
+
+        _fix_gap_card_url(gap_card, _engine_a2a_base(rel["engine"]))
+        flight_card = gap_card
+        auth_module.TARGET_TENANTS["flight-agent"]["security"] = {
+            "token_url": rel["token_url"],
+            "audience": rel["audience"],
+            "scopes": [rel["scope"]],
+        }
+        record(
+            "travel-planner",
+            "auth.card_security",
+            {
+                "target": "flight-agent",
+                "source": "relationship",
+                "audience": rel["audience"],
+                "scopes": [rel["scope"]],
+            },
+        )
+
+if "hotel-agent" in TARGET_RELATIONSHIPS:
+    rel = TARGET_RELATIONSHIPS["hotel-agent"]
+    gap_card = fetch_gap_card(rel["card_url"])
+    if gap_card is not None:
+        from .relationships import _engine_a2a_base
+
+        _fix_gap_card_url(gap_card, _engine_a2a_base(rel["engine"]))
+        hotel_card = gap_card
+        auth_module.TARGET_TENANTS["hotel-agent"]["security"] = {
+            "token_url": rel["token_url"],
+            "audience": rel["audience"],
+            "scopes": [rel["scope"]],
+        }
+        record(
+            "travel-planner",
+            "auth.card_security",
+            {
+                "target": "hotel-agent",
+                "source": "relationship",
+                "audience": rel["audience"],
+                "scopes": [rel["scope"]],
+            },
+        )
+
 flight_specialist = RemoteA2aAgent(
     name="flight_specialist",
     description=(
@@ -223,6 +379,11 @@ flight_specialist = RemoteA2aAgent(
     agent_card=flight_card,
     use_legacy=False,
     httpx_client=_make_traced_client("flight-agent"),
+    # Identity in-message (GAP mode): the delegated PingOne token rides
+    # the A2A request metadata — the GAP edge authenticates the GOOGLE
+    # caller; the PERSON + actor delegation travels in-message and is
+    # validated by the specialist's executor adapter.
+    a2a_request_meta_provider=_identity_meta_provider,
 )
 
 hotel_specialist = RemoteA2aAgent(
@@ -231,6 +392,7 @@ hotel_specialist = RemoteA2aAgent(
     agent_card=hotel_card,
     use_legacy=False,
     httpx_client=_make_traced_client("hotel-agent"),
+    a2a_request_meta_provider=_identity_meta_provider,
 )
 
 # AgentTool keeps the planner in control of the loop: it CALLS each specialist

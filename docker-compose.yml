@@ -78,6 +78,16 @@ services:
       PUBLIC_BASE_URL: http://travel-planner:8080
       FLIGHT_AGENT_CARD_URL: http://flight-agent:8080/a2a/.well-known/agent-card.json
       HOTEL_AGENT_CARD_URL: http://hotel-agent:8080/a2a/.well-known/agent-card.json
+      # GAP business relationships (P3): when a *_ENGINE is set, that
+      # specialist's target switches to the GAP-authenticated card +
+      # relationship-config contract (audience a2a://*, identity in-message).
+      # Empty = self-hosted flavor (card-driven, bearer at the edge).
+      GAP_FLIGHT_ENGINE: ${GAP_FLIGHT_ENGINE:-}
+      GAP_FLIGHT_AUDIENCE: ${GAP_FLIGHT_AUDIENCE:-a2a://flights}
+      GAP_FLIGHT_SCOPE: ${GAP_FLIGHT_SCOPE:-a2a:book}
+      GAP_HOTEL_ENGINE: ${GAP_HOTEL_ENGINE:-}
+      GAP_HOTEL_AUDIENCE: ${GAP_HOTEL_AUDIENCE:-a2a://hotels}
+      GAP_HOTEL_SCOPE: ${GAP_HOTEL_SCOPE:-a2a:book}
       CORS_ORIGINS: http://localhost:5173
       # Identity: planner tenant validates the UI token; specialists receive
       # AS-minted delegation tokens via RFC 8693 at the TokenExchange-AS.
