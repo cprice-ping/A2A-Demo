@@ -17,8 +17,14 @@ from . import auth as auth_module
 from .trace import record, record_exchange
 from typing import Any
 
-FLIGHT_CARD_URL = os.environ["FLIGHT_AGENT_CARD_URL"]
-HOTEL_CARD_URL = os.environ["HOTEL_AGENT_CARD_URL"]
+# Self-hosted card URLs (compose flavor). Optional: when a GAP relationship
+# is declared for a target, its card comes off the GAP authenticated path
+# and this URL is never fetched — that's what lets the k8s planner boot
+# with no specialist reachable in-cluster.
+_SELF_HOSTED_CARD_URLS = {
+    "flight-agent": os.environ.get("FLIGHT_AGENT_CARD_URL", ""),
+    "hotel-agent": os.environ.get("HOTEL_AGENT_CARD_URL", ""),
+}
 
 RENDER_TOOLS = [
     "render_flight_search",
@@ -57,23 +63,31 @@ def _parse_card(content: bytes) -> AgentCard:
     return to_core_agent_card(compat)
 
 
+_google_creds: Any = None  # module cache — WIF exchanges aren't free
+
+
 def _google_credentials() -> str:
     """Google bearer for the GAP platform edge.
 
     ADC covers local runs; on the EKS planner the k8s service account
-    mints it via WIF (the google.auth library reads the injected
-    projected token + audience annotation and exchanges it at STS —
-    no keys stored anywhere).
+    mints it via WIF (GOOGLE_APPLICATION_CREDENTIALS points at the
+    external-account credential config, which exchanges the projected
+    SA token at STS and impersonates a2a-planner — no keys anywhere).
+    The credential object is cached and auto-refreshed; without the
+    cache every outbound A2A call would pay two extra token round-trips
+    (STS exchange + SA impersonation).
     """
+    global _google_creds
     import google.auth
     import google.auth.transport.requests
 
-    creds, _ = google.auth.default(
-        scopes=["https://www.googleapis.com/auth/cloud-platform"]
-    )
-    if not creds.valid:
-        creds.refresh(google.auth.transport.requests.Request())
-    return creds.token
+    if _google_creds is None:
+        _google_creds, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+    if not _google_creds.valid:
+        _google_creds.refresh(google.auth.transport.requests.Request())
+    return _google_creds.token
 
 
 def fetch_gap_card(url: str) -> AgentCard | None:
@@ -95,6 +109,9 @@ def fetch_gap_card(url: str) -> AgentCard | None:
         )
         resp.raise_for_status()
     except Exception as exc:
+        # stderr too: module-level failures kill the process before any
+        # trace panel exists, and k8s debugging starts with pod logs.
+        print(f"[card-fetch] {url}: {type(exc).__name__}: {exc}", flush=True)
         record(
             "travel-planner",
             "a2a.card_fetch_failed",
@@ -300,18 +317,42 @@ def _make_traced_client(target: str) -> httpx.AsyncClient:
     )
 
 
-flight_card = fetch_card(FLIGHT_CARD_URL)
-hotel_card = fetch_card(HOTEL_CARD_URL)
+# ---- Card resolution --------------------------------------------------------
+#
+# Per-target: a GAP relationship supersedes the self-hosted card entirely
+# (the self-hosted URL isn't even fetched — the k8s planner has no
+# specialists in-cluster, so those URLs would point at nothing). Only
+# targets with no GAP relationship need a reachable self-hosted card.
+flight_card: AgentCard | None = None
+hotel_card: AgentCard | None = None
 
-# A2A authn discovery: read each specialist's security requirements off its
-# card (token endpoint, scopes, audience) and store them for the exchange
-# hook. The planner's own actor client registrations stay in env.
-auth_module.TARGET_TENANTS["flight-agent"]["security"] = card_security(
-    flight_card, "flight-agent"
-)
-auth_module.TARGET_TENANTS["hotel-agent"]["security"] = card_security(
-    hotel_card, "hotel-agent"
-)
+from .relationships import TARGET_RELATIONSHIPS, _engine_a2a_base  # noqa: E402
+
+# A2A authn discovery for self-hosted targets: read each specialist's
+# security requirements off its card (token endpoint, scopes, audience).
+# GAP targets get theirs from the relationship record instead (their
+# cards strip securitySchemes — see relationships.py).
+if "flight-agent" not in TARGET_RELATIONSHIPS:
+    url = _SELF_HOSTED_CARD_URLS["flight-agent"]
+    if not url:
+        raise RuntimeError(
+            "flight-agent has no GAP relationship and no FLIGHT_AGENT_CARD_URL"
+        )
+    flight_card = fetch_card(url)
+    auth_module.TARGET_TENANTS["flight-agent"]["security"] = card_security(
+        flight_card, "flight-agent"
+    )
+
+if "hotel-agent" not in TARGET_RELATIONSHIPS:
+    url = _SELF_HOSTED_CARD_URLS["hotel-agent"]
+    if not url:
+        raise RuntimeError(
+            "hotel-agent has no GAP relationship and no HOTEL_AGENT_CARD_URL"
+        )
+    hotel_card = fetch_card(url)
+    auth_module.TARGET_TENANTS["hotel-agent"]["security"] = card_security(
+        hotel_card, "hotel-agent"
+    )
 
 # ---- GAP targets (business-relationship mode) --------------------------------
 #
@@ -321,14 +362,10 @@ auth_module.TARGET_TENANTS["hotel-agent"]["security"] = card_security(
 # scope, token URL) comes from the relationship record — GAP cards
 # strip securitySchemes, and cross-org terms live in config, not on
 # the wire (see relationships.py + GCP-DEPLOYMENT.md).
-from .relationships import TARGET_RELATIONSHIPS  # noqa: E402
-
 if "flight-agent" in TARGET_RELATIONSHIPS:
     rel = TARGET_RELATIONSHIPS["flight-agent"]
     gap_card = fetch_gap_card(rel["card_url"])
     if gap_card is not None:
-        from .relationships import _engine_a2a_base
-
         _fix_gap_card_url(gap_card, _engine_a2a_base(rel["engine"]))
         flight_card = gap_card
         auth_module.TARGET_TENANTS["flight-agent"]["security"] = {
@@ -346,13 +383,16 @@ if "flight-agent" in TARGET_RELATIONSHIPS:
                 "scopes": [rel["scope"]],
             },
         )
+    else:
+        raise RuntimeError(
+            f"flight-agent GAP relationship declared ({rel['engine']}) but its "
+            "authenticated card could not be fetched — check Google credentials"
+        )
 
 if "hotel-agent" in TARGET_RELATIONSHIPS:
     rel = TARGET_RELATIONSHIPS["hotel-agent"]
     gap_card = fetch_gap_card(rel["card_url"])
     if gap_card is not None:
-        from .relationships import _engine_a2a_base
-
         _fix_gap_card_url(gap_card, _engine_a2a_base(rel["engine"]))
         hotel_card = gap_card
         auth_module.TARGET_TENANTS["hotel-agent"]["security"] = {
@@ -369,6 +409,11 @@ if "hotel-agent" in TARGET_RELATIONSHIPS:
                 "audience": rel["audience"],
                 "scopes": [rel["scope"]],
             },
+        )
+    else:
+        raise RuntimeError(
+            f"hotel-agent GAP relationship declared ({rel['engine']}) but its "
+            "authenticated card could not be fetched — check Google credentials"
         )
 
 flight_specialist = RemoteA2aAgent(

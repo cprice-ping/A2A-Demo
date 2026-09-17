@@ -27,7 +27,11 @@ spec:
       labels:
         app: a2a-travel-planner
     spec:
-      automountServiceAccountToken: true # WIF: the SA token IS the credential
+      # No default k8s API token: the only credential the pod needs is the
+      # WIF-audience projected token below (aud must match the WIF
+      # provider's allowed-audiences — sts.amazonaws.com per Google's EKS
+      # federation doc; verify with `gcloud ... providers describe`).
+      automountServiceAccountToken: false
       serviceAccountName: travel-planner
       securityContext:
         runAsNonRoot: true
@@ -50,10 +54,9 @@ spec:
                 secretKeyRef: { name: a2a-travel-planner-credentials, key: GOOGLE_API_KEY }
             - name: PUBLIC_BASE_URL
               value: https://a2a-travel-planner.ping-devops.com
-            - name: FLIGHT_AGENT_CARD_URL
-              value: https://a2a-token-as.ping-devops.com/.well-known/oauth-authorization-server # placeholder; GAP relationships supersede
-            - name: HOTEL_AGENT_CARD_URL
-              value: https://a2a-token-as.ping-devops.com/.well-known/oauth-authorization-server
+            # No FLIGHT/HOTEL_AGENT_CARD_URL here: GAP relationships below
+            # supersede the self-hosted cards entirely, and the k8s planner
+            # has no specialists in-cluster to fetch cards from.
             - name: CORS_ORIGINS
               value: http://localhost:5173
             # Identity: planner tenant validates the UI token; specialists
@@ -105,6 +108,13 @@ spec:
             # Profile API audience (specialists' loyalty pulls)
             - name: P1_PROFILE_AUDIENCE
               value: planner-profile-api
+            # WIF on EKS: no metadata server here, so google.auth needs the
+            # credential CONFIG (generated out-of-band via create-cred-config,
+            # mounted as a ConfigMap). It reads the projected SA token from
+            # /var/run/secrets/tokens/token and exchanges it at STS →
+            # impersonated a2a-planner SA token. Not a secret — URLs only.
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /etc/gcp/credential-config.json
           resources:
             requests: { cpu: 250m, memory: 512Mi }
             limits: { cpu: "1", memory: 1Gi }
@@ -113,6 +123,13 @@ spec:
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: gcp-cred-config
+              mountPath: /etc/gcp
+              readOnly: true
+            - name: gcp-wif-token
+              mountPath: /var/run/secrets/tokens
+              readOnly: true
           readinessProbe:
             httpGet: { path: /a2a/.well-known/agent-card.json, port: http }
             periodSeconds: 10
@@ -128,3 +145,19 @@ spec:
             periodSeconds: 3
             timeoutSeconds: 3
             failureThreshold: 30
+      volumes:
+        - name: gcp-cred-config
+          configMap:
+            name: a2a-travel-planner-wif
+        # WIF audience token: `sts.amazonaws.com` must be in the WIF
+        # provider's allowed audiences (verify with `gcloud iam
+        # workload-identity-pools providers describe a2a-eks-provider
+        # --pool=a2a-eks-pool --location=global`). The default SA token
+        # (aud = k8s API server) is rejected by STS.
+        - name: gcp-wif-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  audience: sts.amazonaws.com
+                  expirationSeconds: 3600
