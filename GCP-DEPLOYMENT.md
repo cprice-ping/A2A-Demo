@@ -49,6 +49,78 @@ Division of governance (the demo's thesis, two tiers):
 - **Ping** governs identity + delegation + tool policy: person token,
   RFC 8693 exchange (AS + P1AZ), loyalty-scoped profile tokens.
 
+## The business relationship: how a planner connects to a specialist
+
+Specialists on GAP don't advertise their auth contract — GAP strips
+securitySchemes from served cards (verified: fixed core-field allowlist
+only), and in cross-org reality no operator publishes their terms
+anonymously. The card says WHAT the agent can do; the contract says
+UNDER WHAT TERMS you may ask. That contract is a human business
+agreement, and the planner represents its side of it as configuration.
+
+### The bootstrap sequence (per relationship, done once by operators)
+
+1. **Arrangement** (human, out-of-band, pre-protocol): the parties agree
+   issuers, audiences, scopes, actor identities, caller platform
+   identity, audit expectations.
+2. **Platform layer**: the specialist's operator grants the planner's
+   platform identity access (GAP: IAM binding, roles/aiplatform.user on
+   the engine; productized home: Agent Registry entry).
+3. **Identity layer**: the specialist's operator registers the planner's
+   bridge as an authorized actor in its IdP/AS (PingOne client + P1AZ
+   delegation row) — "this workload may exchange tokens about persons,
+   for this audience, within these scopes."
+4. **Wire layer**: planner fetches the authenticated card (skills,
+   endpoint), carries the CONTRACT as config, and performs the RFC 8693
+   exchange at delegation time.
+
+### The relationship object (planner-side contract representation)
+
+Each GAP target is modeled in the planner as an explicit
+business-relationship record — TARGET_RELATIONSHIPS (env-derived, like
+the current TARGET_TENANTS):
+
+    {
+      "hotel-agent": {
+        # platform clause (Google tier)
+        "engine": "projects/3682147732/locations/us-west1/reasoningEngines/<id>",
+        "platform_credential": "wif",          # k8s SA -> Google SA (WIF)
+        # identity/delegation clauses (Ping side — the contract proper)
+        "audience": "a2a://hotels",            # resource the AS mints for
+        "scope": "a2a:book",
+        "token_url": "https://a2a-token-as.ping-devops.com/token",
+        "as_client": "as-client-id",           # exchange client registration
+        # card URL is derived from engine; scheme is NOT read from the
+        # card (GAP strips it) — the terms live HERE, not on the wire
+      },
+      ...
+    }
+
+Contract-clause → config mapping (what the operators agreed, where it
+lands):
+
+| Contract clause | Where it lives |
+|---|---|
+| Caller presents person-scoped token, actor = registered bridge | PingOne client registration + P1AZ policy |
+| Audience / resource | `audience` in the relationship object + AS exchange + specialist validator |
+| Scopes granted | P1AZ rows + relationship object `scope` |
+| Caller's platform identity | GAP IAM binding / Agent Registry entry |
+| Audit every delegation | trace rows + P1AZ decision logs |
+
+Honest framing for the demo: specialists on GAP do not advertise their
+terms; the terms live in the established relationship. That is more
+production-true than self-description — and the same shape as Ping's
+Identity-for-AI narrative (agent onboarding, scoped access, auditable
+delegation). The self-hosted flavor keeps card-driven discovery (same
+org, scheme on the wire); the GAP flavor models the contract explicitly.
+Side by side, the two show WHERE the contract belongs at each trust
+boundary.
+
+Implications recorded: (1) pingone-personal direct login has no
+GAP-native home — loyalty stays planner-mediated (already decided);
+(2) Agent Registry is the productized home for the contract — GAP gives
+the registry; AS + P1AZ remain the delegation contract.
+
 ## What changes per component
 
 | Component | Today (compose) | Target | New artifacts |
