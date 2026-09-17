@@ -200,16 +200,39 @@ def card_security(card: AgentCard, target: str) -> dict[str, Any]:
     return {"token_url": token_url, "audience": audience, "scopes": scopes}
 
 
-def _identity_meta_provider(ctx: Any, message: Any) -> dict[str, Any]:
-    """Attach the delegated PingOne identity to the A2A request metadata.
+def _identity_meta_provider_for(target: str):
+    """Meta-provider factory: one per specialist RemoteA2aAgent.
 
-    The GAP specialists validate this token in-agent (their executor
-    adapter reads SendMessageRequest.metadata["a2a_demo_identity"]); the
-    self-hosted flavor ignores it (it gets the bearer at the edge) — the
-    metadata is harmless there, so one provider serves both flavors.
+    The raw person token never crosses the wire to a specialist: it is
+    exchanged at the TokenExchange-AS for an OBO token minted for THIS
+    target — sub = the person, act.sub = the planner's bridge client,
+    aud = the specialist's relationship URI (a2a://flights|hotels),
+    scope = a2a:book. The AS consults PingOne Authorize for the delegation
+    decision (P1AZ). The specialist can therefore trust three facts, not
+    one: WHO is using the agent (person), WHICH intermediary asks (actor),
+    and that the token is BOUND FOR IT (audience-bound — worthless at any
+    other agent).
+
+    Failure is traced and falls back to the raw person token so the GAP
+    flavor degrades the same way the self-hosted flavor does (specialist
+    rejects it; the conversation surfaces the error).
     """
-    token = auth_module.user_token_var.get()
-    return {"a2a_demo_identity": token} if token else {}
+
+    def provider(ctx: Any, message: Any) -> dict[str, Any]:
+        person = auth_module.user_token_var.get()
+        if not person:
+            return {}
+        exchanged = auth_module.exchange_token(target, person)
+        if exchanged:
+            return {"a2a_demo_identity": exchanged}
+        record(
+            "travel-planner",
+            "auth.identity_fallback_raw",
+            {"target": target},
+        )
+        return {"a2a_demo_identity": person}
+
+    return provider
 
 
 def _make_traced_client(target: str) -> httpx.AsyncClient:
@@ -424,11 +447,12 @@ flight_specialist = RemoteA2aAgent(
     agent_card=flight_card,
     use_legacy=False,
     httpx_client=_make_traced_client("flight-agent"),
-    # Identity in-message (GAP mode): the delegated PingOne token rides
-    # the A2A request metadata — the GAP edge authenticates the GOOGLE
-    # caller; the PERSON + actor delegation travels in-message and is
-    # validated by the specialist's executor adapter.
-    a2a_request_meta_provider=_identity_meta_provider,
+    # Identity in-message (GAP mode): the OBO token (person + actor +
+    # audience-bound at the relationship URI) rides the A2A request
+    # metadata — the GAP edge authenticates the GOOGLE caller; the PERSON
+    # + actor delegation travels in-message and is validated by the
+    # specialist's executor adapter.
+    a2a_request_meta_provider=_identity_meta_provider_for("flight-agent"),
 )
 
 hotel_specialist = RemoteA2aAgent(
@@ -437,7 +461,7 @@ hotel_specialist = RemoteA2aAgent(
     agent_card=hotel_card,
     use_legacy=False,
     httpx_client=_make_traced_client("hotel-agent"),
-    a2a_request_meta_provider=_identity_meta_provider,
+    a2a_request_meta_provider=_identity_meta_provider_for("hotel-agent"),
 )
 
 # AgentTool keeps the planner in control of the loop: it CALLS each specialist

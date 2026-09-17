@@ -52,6 +52,25 @@ REQUIREMENTS = [
 # "failed to start" engine error (the real cause is in the engine's stderr
 # log under aiplatform.googleapis.com/reasoning_engine_stderr).
 
+# Engine env (DeploymentSpec.env — GAP-native): identity + loyalty config.
+# GAP_RELATIONSHIP_AUDIENCE: the URI the AS mints OBO delegation tokens for
+# (audience-bound: the specialist only receives tokens addressed to it).
+# PLANNER_PROFILE_URL must be the PUBLIC planner — the loyalty pull comes
+# from Google's cloud, outside the demo cluster.
+ENGINE_ENV = {
+    "AS_ISSUER": os.environ.get("AS_ISSUER", ""),
+    "AS_CLIENT_ID": os.environ.get("AS_CLIENT_ID", ""),
+    "AS_CLIENT_SECRET": os.environ.get("AS_CLIENT_SECRET", ""),
+    "P1_PROFILE_AUDIENCE": "planner-profile-api",
+    "P1_PROFILE_SCOPE": "loyalty:read",
+    "PLANNER_PROFILE_URL": os.environ.get(
+        "GAP_PLANNER_PROFILE_URL",
+        "https://a2a-travel-planner.ping-devops.com/api/profile/loyalty",
+    ),
+    "GAP_RELATIONSHIP_AUDIENCE": os.environ.get("GAP_FLIGHT_AUDIENCE", "a2a://flights"),
+    "AUTHORIZED_ACTORS": os.environ.get("AUTHORIZED_ACTORS", "travel-planner"),
+}
+
 
 def _ensure_staging_bucket() -> None:
     """Create the staging bucket if absent (first deployment only)."""
@@ -106,7 +125,8 @@ def main() -> None:
     if action == "create":
         # agentplatform (post-2.0 SDK): client.runtimes.create(runtime=None,
         # agent=…, config=AgentRuntimeConfig-dict) replaces vertexai's
-        # client.agent_engines.create.
+        # client.agent_engines.create. env_vars = DeploymentSpec.env (GAP
+        # native) — identity + loyalty config for the OBO delegation path.
         remote = client.runtimes.create(
             agent=gap_agent,
             config={
@@ -114,6 +134,7 @@ def main() -> None:
                 "requirements": REQUIREMENTS,
                 "staging_bucket": f"gs://{STAGING_BUCKET}",
                 "extra_packages": extra_packages,
+                "env_vars": ENGINE_ENV,
             },
         )
         print("created:", _engine_resource_name(remote))
@@ -139,6 +160,7 @@ def main() -> None:
                 "requirements": REQUIREMENTS,
                 "staging_bucket": f"gs://{STAGING_BUCKET}",
                 "extra_packages": extra_packages,
+                "env_vars": ENGINE_ENV,
             },
         )
         print("updated:", _engine_resource_name(remote))

@@ -77,7 +77,13 @@ export function useAgentCard(
       .then((text) => {
         if (cancelled) return;
         setRawJson(text);
-        setCard(JSON.parse(text));
+        try {
+          setCard(JSON.parse(text));
+        } catch {
+          // A non-JSON response (HTML 404 page, SPA fallback, gateway error
+          // page) is an unreachability signal, not a parse accident.
+          throw new Error("response is not an agent card (HTML?) — is the URL an A2A endpoint?");
+        }
       })
       .catch((e) => !cancelled && setError(String(e)));
     return () => {

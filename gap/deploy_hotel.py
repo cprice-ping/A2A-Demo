@@ -52,6 +52,22 @@ REQUIREMENTS = [
 # "failed to start" engine error (the real cause is in the engine's stderr
 # log under aiplatform.googleapis.com/reasoning_engine_stderr).
 
+# Engine env (DeploymentSpec.env — GAP-native): identity + loyalty config,
+# same as the flight engine but keyed to the hotels relationship URI.
+ENGINE_ENV = {
+    "AS_ISSUER": os.environ.get("AS_ISSUER", ""),
+    "AS_CLIENT_ID": os.environ.get("AS_CLIENT_ID", ""),
+    "AS_CLIENT_SECRET": os.environ.get("AS_CLIENT_SECRET", ""),
+    "P1_PROFILE_AUDIENCE": "planner-profile-api",
+    "P1_PROFILE_SCOPE": "loyalty:read",
+    "PLANNER_PROFILE_URL": os.environ.get(
+        "GAP_PLANNER_PROFILE_URL",
+        "https://a2a-travel-planner.ping-devops.com/api/profile/loyalty",
+    ),
+    "GAP_RELATIONSHIP_AUDIENCE": os.environ.get("GAP_HOTEL_AUDIENCE", "a2a://hotels"),
+    "AUTHORIZED_ACTORS": os.environ.get("AUTHORIZED_ACTORS", "travel-planner"),
+}
+
 
 def _ensure_staging_bucket() -> None:
     """Create the staging bucket if absent (first deployment only)."""
@@ -114,6 +130,7 @@ def main() -> None:
                 "requirements": REQUIREMENTS,
                 "staging_bucket": f"gs://{STAGING_BUCKET}",
                 "extra_packages": extra_packages,
+                "env_vars": ENGINE_ENV,
             },
         )
         print("created:", _engine_resource_name(remote))
@@ -139,6 +156,7 @@ def main() -> None:
                 "requirements": REQUIREMENTS,
                 "staging_bucket": f"gs://{STAGING_BUCKET}",
                 "extra_packages": extra_packages,
+                "env_vars": ENGINE_ENV,
             },
         )
         print("updated:", _engine_resource_name(remote))

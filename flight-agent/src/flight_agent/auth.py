@@ -50,10 +50,13 @@ AS_ISSUER = os.environ.get("AS_ISSUER", "")
 # this domain's PingOne tenant (local person logins) carry the Resource's
 # configured audience (P1_FLIGHTS_AUDIENCE). Deriving the AS audience from
 # PUBLIC_BASE_URL keeps caller and validator in lockstep with what the card
-# advertises — no separate knob to drift.
+# advertises — no separate knob to drift. GAP deployments declare the
+# business-relationship URI instead (GAP_RELATIONSHIP_AUDIENCE,
+# e.g. a2a://flights) — the AS mints OBO delegation tokens FOR that URI and
+# only that URI; the specialist therefore receives tokens bound for it.
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8080")
 AUDIENCE = os.environ.get("P1_FLIGHTS_AUDIENCE", "") or PUBLIC_BASE_URL
-AS_AUDIENCE = f"{PUBLIC_BASE_URL}/a2a/"
+AS_AUDIENCE = os.environ.get("GAP_RELATIONSHIP_AUDIENCE", "") or f"{PUBLIC_BASE_URL}/a2a/"
 AUTHORIZED_ACTORS = {
     c for c in os.environ.get("AUTHORIZED_ACTORS", "travel-planner").split(",") if c
 }
