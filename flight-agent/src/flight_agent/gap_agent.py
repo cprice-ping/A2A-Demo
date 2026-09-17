@@ -232,5 +232,3 @@ def build_gap_agent() -> A2aAgent:
 
 
 gap_agent = build_gap_agent()
-
-gap_agent = build_gap_agent()

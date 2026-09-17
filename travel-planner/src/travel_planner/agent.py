@@ -200,6 +200,15 @@ def card_security(card: AgentCard, target: str) -> dict[str, Any]:
     return {"token_url": token_url, "audience": audience, "scopes": scopes}
 
 
+# Delegated-identity extension URI — must match the specialists' card
+# declarations (flight_agent.card.IDENTITY_EXTENSION_URI / hotel). Sent as
+# X-A2A-Extensions on delegations so a compliant specialist knows the
+# caller opted into the a2a_demo_identity metadata contract.
+IDENTITY_EXTENSION_URI = (
+    "https://github.com/cprice-ping/A2A-Demo/extensions/delegated-identity/v1"
+)
+
+
 def _identity_meta_provider_for(target: str):
     """Meta-provider factory: one per specialist RemoteA2aAgent.
 
@@ -224,7 +233,12 @@ def _identity_meta_provider_for(target: str):
             return {}
         exchanged = auth_module.exchange_token(target, person)
         if exchanged:
-            return {"a2a_demo_identity": exchanged}
+            # Extension activation in-message (the GAP edge hides transport
+            # headers from the agent; metadata is the in-message channel).
+            return {
+                "a2a_demo_identity": exchanged,
+                "a2a_extensions": [IDENTITY_EXTENSION_URI],
+            }
         record(
             "travel-planner",
             "auth.identity_fallback_raw",
@@ -275,6 +289,9 @@ def _make_traced_client(target: str) -> httpx.AsyncClient:
                     "auth.token_exchange_failed",
                     {"target": target, "error": str(exc)},
                 )
+            # Activate the delegated-identity extension on delegations
+            # (harmless where the target ignores it).
+            request.headers["X-A2A-Extensions"] = IDENTITY_EXTENSION_URI
 
         request_body = None
         text = ""

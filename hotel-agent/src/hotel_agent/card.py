@@ -7,6 +7,7 @@ import os
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
+    AgentExtension,
     AgentInterface,
     AgentSkill,
     AuthorizationCodeOAuthFlow,
@@ -17,6 +18,9 @@ from a2a.types import (
     SecurityScheme,
     StringList,
 )
+
+# Delegated-identity extension: same contract as the flight agent.
+IDENTITY_EXTENSION_URI = "https://github.com/cprice-ping/A2A-Demo/extensions/delegated-identity/v1"
 
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8081")
 HOTELS_ISSUER = os.environ.get("P1_HOTELS_ISSUER", "")
@@ -106,7 +110,16 @@ def build_card() -> AgentCard:
         name="hotel_agent",
         description="Hotel specialist: searches and books hotels by city and stay dates.",
         version="0.1.0",
-        capabilities=AgentCapabilities(streaming=True),
+        capabilities=AgentCapabilities(
+            streaming=True,
+            extensions=[
+                AgentExtension(
+                    uri=IDENTITY_EXTENSION_URI,
+                    description="Delegated identity: OBO token (sub=person, act=caller, aud=relationship URI) in message metadata['a2a_demo_identity']",
+                    required=False,
+                )
+            ],
+        ),
         default_input_modes=["text/plain"],
         default_output_modes=["text/plain"],
         skills=SKILLS,
