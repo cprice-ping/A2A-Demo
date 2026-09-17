@@ -66,30 +66,10 @@ def _book_hotel_impl(hotel_id: str, check_in: str, check_out: str, guests: int =
     return {"booking": booking}
 
 
-async def book_hotel_identity_aware(hotel_id: str, check_in: str, check_out: str, guests: int = 1) -> dict:
-    """ADK-native booking wrapper that runs in the request context.
-
-    The MCP server is a separate HTTP hop, so the middleware's contextvars
-    (current_identity / current_token) are empty by the time an MCP tool
-    runs. This wrapper runs on the agent itself, in the /a2a request's async
-    context — the delegated identity and raw token ARE visible here, so the
-    loyalty pull gets a real person token and the discount lands. Falls
-    through to the plain booking path when unauthenticated.
-    """
-    identity = auth_module.current_identity.get()
-    loyalty = None
-    if identity and identity.get("sub") and auth_module.current_token.get():
-        from .loyalty import lookup_loyalty
-
-        loyalty = lookup_loyalty(auth_module.current_token.get())
-    hotel = data.get_hotel(hotel_id)
-    if not hotel:
-        return {"error": f"Unknown hotel_id {hotel_id!r}"}
-    try:
-        booking = store.create_hotel_booking(hotel, check_in, check_out, guests, loyalty=loyalty)
-    except ValueError as e:
-        return {"error": str(e)}
-    return {"booking": booking}
+# book_hotel_identity_aware lives in tools.py (no fastmcp import) so the
+# GAP flavor can share it without dragging in the MCP server; re-exported
+# here for the self-hosted agent's tool list.
+from .tools import book_hotel_identity_aware  # noqa: E402,F401
 
 
 @mcp.tool

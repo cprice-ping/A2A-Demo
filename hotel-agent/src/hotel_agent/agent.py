@@ -8,7 +8,7 @@ from google.adk.agents import Agent
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset, StreamableHTTPConnectionParams
 from ag_ui_adk import AGUIToolset
 
-from . import mcp_server
+from . import instructions, mcp_server
 
 MCP_SELF_URL = os.environ.get("MCP_SELF_URL", "http://localhost:8081/mcp")
 
@@ -78,24 +78,7 @@ root_agent = Agent(
 # planner). Frontend render tools make no sense there (there is no browser on
 # the other end) — instead the agent returns the structured data in its reply
 # so the CALLER can render it.
-A2A_INSTRUCTION = """
-You are hotel_agent, a hotel search and booking specialist called by another
-agent over A2A. There is no human reading your words — your caller renders UI
-from your reply.
-
-## Tools
-list_cities, search_hotels, get_hotel, get_booking are the ONLY source of
-hotel data. Never invent hotels, prices, or booking ids. Book with
-book_hotel_identity_aware (applies the caller's loyalty discount automatically
-when the delegated identity carries one).
-
-## Responding
-- After a search, your reply MUST include the full hotels list as JSON,
-  exactly as the tool returned it: {"query": {...}, "hotels": [...]}. Do not
-  summarize it into prose — the caller needs the raw records verbatim.
-- After a booking, include the full booking object as JSON.
-- If a tool returns {"error": ...}, reply with that error JSON plainly.
-""".strip()
+A2A_INSTRUCTION = instructions.A2A_INSTRUCTION
 
 a2a_agent = Agent(
     name="hotel_agent",
