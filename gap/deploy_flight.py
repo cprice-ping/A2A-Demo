@@ -144,14 +144,16 @@ def main() -> None:
     elif action == "upgrade":
         # Preserve the existing reasoningEngineId: resolve by display name.
         # The list API doesn't filter by display_name server-side; scan locally.
+        # NOTE: runtimes.list returns Runtime wrappers that do NOT lift
+        # display_name (or .name) — the resource lives in .api_resource
+        # (same quirk as the create result).
         engines = list(client.runtimes.list(config={}))
         if not engines:
             raise SystemExit("no existing agent engines found; run create first")
         target = None
         for e in engines:
-            if getattr(e, "display_name", "") == DISPLAY_NAME or DISPLAY_NAME in str(
-                getattr(e, "name", "")
-            ):
+            res = getattr(e, "api_resource", None)
+            if getattr(res, "display_name", "") == DISPLAY_NAME:
                 target = e
                 break
         if target is None:
