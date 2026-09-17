@@ -21,11 +21,16 @@ kubectl -n ping-devops-cprice create configmap a2a-travel-ui-config \
   planner: "https://a2a-travel-planner.ping-devops.com",
   plannerIssuer: "https://auth.pingone.com/<PLANNER_ENV_ID>/as",
   uiClientId: "<travel-ui CLIENT_ID>",
+  deployment: "gap",
 };'
 ```
 
    - planner: the public planner (browser -> planner HTTPS; the UI pod
      never proxies it)
+   - deployment: "gap" — specialists are GAP-hosted (agent-only): their
+     card strip entries render the 🔒 GAP honesty state and no card is
+     fetched (a browser holds no Google credential; GAP cards are
+     IAM-gated). Use "local" (or omit) when specialists run in compose.
    - flight/hotel: GAP-hosted specialists have NO AG-UI surface — their
      tabs render the agent-only honesty state (P6). Point them anywhere
      unreachable; the tabs do not fetch cards when retired.

@@ -1063,3 +1063,27 @@ body {
 *::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ---- sign-in gate (planner requires auth; the prompt is the gated surface) */
+.sign-in-gate {
+  margin: auto;
+  max-width: 420px;
+  text-align: center;
+  padding: 40px 32px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.sign-in-gate h2 {
+  margin: 0 0 12px;
+}
+.sign-in-gate p {
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 0 0 10px;
+}
+.sign-in-gate .login-button {
+  margin-top: 12px;
+  font-size: 15px;
+  padding: 10px 22px;
+}

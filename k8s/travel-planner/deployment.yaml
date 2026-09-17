@@ -58,7 +58,8 @@ spec:
             # supersede the self-hosted cards entirely, and the k8s planner
             # has no specialists in-cluster to fetch cards from.
             - name: CORS_ORIGINS
-              value: http://localhost:5173
+              # UI origin (browser calls planner directly) + local dev UI.
+              value: https://a2a-travel-ui.ping-devops.com,http://localhost:5173
             # Identity: planner tenant validates the UI token; specialists
             # receive AS-minted delegation tokens (RFC 8693).
             - name: P1_PLANNER_ISSUER

@@ -1,4 +1,4 @@
-import { AGENT_META, type AgentId } from "../agents";
+import { AGENT_META, specialistMode, type AgentId } from "../agents";
 import AgentCardView, { useAgentCard } from "./AgentCardView";
 
 /** One compact card; click opens the full card detail. */
@@ -11,8 +11,31 @@ function MiniCard({
   selected: boolean;
   onSelect: (id: AgentId) => void;
 }) {
-  const { card, error } = useAgentCard(agentId);
   const meta = AGENT_META[agentId];
+  // GAP-honesty: specialists on GAP have no browser-reachable card (the
+  // card itself sits behind Google IAM) and no AG-UI chat. Show the
+  // honest state instead of a failed fetch.
+  const gapSpecialist = specialistMode() === "gap" && agentId !== "planner";
+  const { card, error } = useAgentCard(agentId, { skip: gapSpecialist });
+
+  if (gapSpecialist) {
+    return (
+      <button
+        className={`mini-card ${selected ? "selected" : ""}`}
+        onClick={() => onSelect(agentId)}
+        title={`${meta.blurb} — agent-only on Google Agent Platform`}
+      >
+        <div className="mini-card-head">
+          <span className="mini-card-label">{meta.label}</span>
+          <span className="mini-card-status up">🔒 GAP</span>
+        </div>
+        <div className="mini-card-desc muted">
+          Agent-only behind Google IAM — the planner delegates to it over A2A;
+          this UI cannot fetch its card or chat with it directly.
+        </div>
+      </button>
+    );
+  }
 
   return (
     <button
@@ -52,6 +75,7 @@ export function AgentCardModal({
   agentId: AgentId;
   onClose: () => void;
 }) {
+  const gapSpecialist = specialistMode() === "gap" && agentId !== "planner";
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -62,7 +86,25 @@ export function AgentCardModal({
           </button>
         </div>
         <div className="modal-body card-modal-body">
-          <AgentCardView agentId={agentId} />
+          {gapSpecialist ? (
+            <div className="agent-card">
+              <h3>🔒 Card behind Google IAM</h3>
+              <p>
+                This specialist is deployed on <strong>Google Agent Platform</strong>.
+                GAP does not serve anonymous agent cards: discovery itself is
+                IAM-governed, and the planner fetches it with its Google platform
+                credential (WIF on EKS).
+              </p>
+              <p className="muted">
+                A browser holds no Google credential, so no card renders here —
+                that is the deployment's security model working, not a bug. The
+                planner delegates to this agent over A2A; booking results appear
+                in the chat when you ask for one.
+              </p>
+            </div>
+          ) : (
+            <AgentCardView agentId={agentId} />
+          )}
         </div>
       </div>
     </div>

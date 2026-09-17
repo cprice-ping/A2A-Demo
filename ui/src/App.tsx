@@ -18,14 +18,19 @@ function ActionRegistry() {
 }
 
 export default function App() {
-  const { token } = useAuth();
+  const { token, login, configuring } = useAuth();
   // Agents re-created when the auth token changes so the planner agent
   // carries the fresh Authorization header.
   const agents = useMemo(() => makeAgents(token ?? undefined), [token]);
-  const [agentId, setAgentId] = useState<AgentId>("flight");
+  const [agentId, setAgentId] = useState<AgentId>("planner");
   const [activityExpanded, setActivityExpanded] = useState(false);
   const [showArch, setShowArch] = useState(false);
   const [showCard, setShowCard] = useState<AgentId | null>(null);
+
+  // Sign-in gate: the planner requires a PingOne token on /agui (the
+  // planner enforces AUTH_REQUIRED); a signed-out visitor gets the
+  // sign-in prompt instead of a chat that would only error.
+  const needsSignIn = !token && !configuring;
 
   return (
     <div className="app">
@@ -91,25 +96,45 @@ export default function App() {
             onSelect={setAgentId}
             onOpenCard={setShowCard}
           />
-          <CopilotKit
-            selfManagedAgents={agents}
-            agentId={agentId}
-            agent={agentId}
-            key={agentId}
-            showDevConsole={false}
-            enableInspector={false}
-          >
-            <ActionRegistry />
-            <CopilotSidebar
-              defaultOpen
-              clickOutsideToClose={false}
-              hitEscapeToClose={false}
-              labels={{
-                title: AGENT_META[agentId].label,
-                initial: AGENT_META[agentId].blurb,
-              }}
-            />
-          </CopilotKit>
+          {needsSignIn ? (
+            <div className="sign-in-gate">
+              <h2>🔐 Sign in to chat</h2>
+              <p>
+                The travel planner authenticates every prompt: your PingOne
+                (planner tenant) identity rides on each request, and the
+                specialists receive a delegated identity — bookings land as
+                <em> you</em>, with your loyalty applied.
+              </p>
+              <p className="muted">
+                The agent card and trace panels below stay visible without
+                signing in (protocol discovery + observability are public by
+                design; the agent prompt is not).
+              </p>
+              <button className="login-button" onClick={login}>
+                🔐 Sign in with PingOne
+              </button>
+            </div>
+          ) : (
+            <CopilotKit
+              selfManagedAgents={agents}
+              agentId={agentId}
+              agent={agentId}
+              key={agentId}
+              showDevConsole={false}
+              enableInspector={false}
+            >
+              <ActionRegistry />
+              <CopilotSidebar
+                defaultOpen
+                clickOutsideToClose={false}
+                hitEscapeToClose={false}
+                labels={{
+                  title: AGENT_META[agentId].label,
+                  initial: AGENT_META[agentId].blurb,
+                }}
+              />
+            </CopilotKit>
+          )}
         </section>
       </main>
     </div>

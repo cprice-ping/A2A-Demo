@@ -56,7 +56,10 @@ function securityRequirements(card: AgentCard): Record<string, string[]>[] {
   );
 }
 
-export function useAgentCard(agentId: AgentId) {
+export function useAgentCard(
+  agentId: AgentId,
+  opts?: { skip?: boolean },
+) {
   const [card, setCard] = useState<AgentCard | null>(null);
   // The verbatim wire document (for the raw-JSON view — re-serializing the
   // parsed subset would lose fields we don't render).
@@ -64,6 +67,7 @@ export function useAgentCard(agentId: AgentId) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (opts?.skip) return;
     let cancelled = false;
     fetch(`${AGENT_BASE[agentId]}/a2a/.well-known/agent-card.json`)
       .then((r) => {
@@ -79,7 +83,7 @@ export function useAgentCard(agentId: AgentId) {
     return () => {
       cancelled = true;
     };
-  }, [agentId]);
+  }, [agentId, opts?.skip]);
 
   return { card, rawJson, error };
 }

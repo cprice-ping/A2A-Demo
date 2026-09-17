@@ -15,6 +15,13 @@ interface A2AConfig {
   hotel?: string;
   plannerIssuer?: string;
   uiClientId?: string;
+  /** "gap": specialists are GAP-hosted — agent-only (no browser surface). */
+  deployment?: "local" | "gap";
+}
+
+/** Are the specialists GAP-hosted (agent-only from the browser)? */
+export function specialistMode(): "local" | "gap" {
+  return cfg().deployment ?? "local";
 }
 
 function cfg(): A2AConfig {
