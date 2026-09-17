@@ -56,6 +56,12 @@ spec:
               mountPath: /usr/share/nginx/html/config.js
               subPath: config.js
               readOnly: true
+            # nginx runtime state: cache dirs + pid file. readOnlyRootFilesystem
+            # blocks mkdir there, so back them with emptyDirs.
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: run
+              mountPath: /var/run
           readinessProbe:
             httpGet: { path: /, port: http }
             periodSeconds: 10
@@ -70,3 +76,8 @@ spec:
         - name: config
           configMap:
             name: a2a-travel-ui-config
+        # nginx runtime state (cache + pid) — writable, pod-lifetime only.
+        - name: cache
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
