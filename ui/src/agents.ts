@@ -3,11 +3,35 @@ import { HttpAgent } from "@ag-ui/client";
 /** Direct AG-UI connection per agent — no CopilotKit runtime needed. */
 export type AgentId = "flight" | "hotel" | "planner";
 
+/**
+ * Runtime config: ui/public/config.js (ConfigMap-mounted in k8s) sets
+ * window.__A2A_CONFIG__ BEFORE the bundle loads; agents.ts reads it here
+ * once. Absent -> local-dev defaults (compose ports). This keeps agent
+ * URLs and auth config deploy-time settings, not build-time ones.
+ */
+interface A2AConfig {
+  planner?: string;
+  flight?: string;
+  hotel?: string;
+  plannerIssuer?: string;
+  uiClientId?: string;
+}
+
+function cfg(): A2AConfig {
+  const w = window as unknown as { __A2A_CONFIG__?: A2AConfig };
+  return w.__A2A_CONFIG__ ?? {};
+}
+
+/** Base URL of the planner (REST surfaces: card, trace). */
+export function plannerBase(): string {
+  return (cfg().planner ?? "http://localhost:8082").replace(/\/$/, "");
+}
+
 /** Base URLs of the three agents (REST surfaces: card, trace). */
 export const AGENT_BASE: Record<AgentId, string> = {
-  flight: "http://localhost:8080",
-  hotel: "http://localhost:8081",
-  planner: "http://localhost:8082",
+  flight: cfg().flight ?? "http://localhost:8080",
+  hotel: cfg().hotel ?? "http://localhost:8081",
+  planner: plannerBase(),
 };
 
 export const AGENT_META: Record<AgentId, { label: string; blurb: string }> = {
@@ -39,13 +63,13 @@ function url(envVar: string, fallback: string): string {
 export function makeAgents(authToken?: string): Record<AgentId, HttpAgent> {
   return {
     flight: new HttpAgent({
-      url: url("flightAgent", "http://localhost:8080/agui"),
+      url: url("flightAgent", `${AGENT_BASE.flight}/agui`),
     }),
     hotel: new HttpAgent({
-      url: url("hotelAgent", "http://localhost:8081/agui"),
+      url: url("hotelAgent", `${AGENT_BASE.hotel}/agui`),
     }),
     planner: new HttpAgent({
-      url: url("plannerAgent", "http://localhost:8082/agui"),
+      url: url("plannerAgent", `${AGENT_BASE.planner}/agui`),
       // The human's planner-tenant PingOne token travels on every /agui
       // call; the planner validates it and exchanges it at specialists.
       ...(authToken ? { headers: { Authorization: `Bearer ${authToken}` } } : {}),

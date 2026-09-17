@@ -1,0 +1,72 @@
+# A2A travel demo UI on EKS — serves the built SPA via nginx.
+# Security posture mirrors the AS + planner (non-root, read-only rootfs,
+# caps dropped); the nginx unprivileged image matches uid 101.
+#
+# Runtime config: the config-ui ConfigMap REPLACES the image's default
+# config.js (mounted over /usr/share/nginx/html/config.js) so agent URLs
+# and auth config are deploy-time values — see README.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: a2a-travel-ui
+  namespace: ping-devops-cprice
+  labels:
+    app: a2a-travel-ui
+spec:
+  replicas: 1
+  minReadySeconds: 5
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  selector:
+    matchLabels:
+      app: a2a-travel-ui
+  template:
+    metadata:
+      labels:
+        app: a2a-travel-ui
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ui
+          image: pricecs/a2a-travel-ui:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            # Runtime config replaces the image's default config.js.
+            - name: config
+              mountPath: /usr/share/nginx/html/config.js
+              subPath: config.js
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 15
+            timeoutSeconds: 2
+            failureThreshold: 5
+      volumes:
+        - name: config
+          configMap:
+            name: a2a-travel-ui-config

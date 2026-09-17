@@ -47,6 +47,27 @@ app.add_middleware(ProtocolTraceMiddleware, source="travel-planner")
 
 app.include_router(trace_router("travel-planner"), prefix="/api")
 
+
+# ---- Root: the ingress routes /agui /a2a /api only; a browser hitting /
+# would otherwise get nginx's default 404. Serve the card metadata instead.
+@app.get("/")
+def root_index():
+    from .agent import flight_card, hotel_card
+
+    return {
+        "name": "travel-planner",
+        "description": "Plans trips by delegating to flight and hotel specialist agents over A2A.",
+        "card": f"{os.environ.get('PUBLIC_BASE_URL', '')}/a2a/.well-known/agent-card.json",
+        "surfaces": {
+            "agui": "/agui (AG-UI chat, SSE)",
+            "a2a": "/a2a (A2A protocol, card at /a2a/.well-known/agent-card.json)",
+            "api": "/api (trace + profile)",
+        },
+        "specialists": [
+            {"name": c.name, "description": c.description} for c in (flight_card, hotel_card)
+        ],
+    }
+
 # ---- Planner Profile API: the loyalty-linkage source specialists pull from ----
 #
 # Loyalty programs are application data, not identity claims: the planner
@@ -143,7 +164,12 @@ def get_loyalty(authorization: str = Header(default="")):
 
 app.include_router(profile_router, prefix="/api")
 
-from .auth import extract_user_token  # noqa: E402
+from .auth import AUTH_REQUIRED, BearerAuthMiddleware, extract_user_token  # noqa: E402
+
+# Outermost gate: 401s /agui + /a2a without a valid planner-tenant Bearer
+# when AUTH_REQUIRED — no anonymous path into the agent prompt.
+if AUTH_REQUIRED:
+    app.add_middleware(BearerAuthMiddleware)
 
 add_adk_fastapi_endpoint(
     app,

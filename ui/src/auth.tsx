@@ -5,13 +5,14 @@ import type { ReactNode } from "react";
  * OIDC Authorization Code + PKCE (S256) against the planner PingOne tenant.
  * Public client (no secret); tokens live in sessionStorage for this tab only.
  *
- * Vite env (ui/.env.local, not committed):
- *   VITE_PLANNER_ISSUER=https://auth.pingone.com/<plannerEnvId>/as
- *   VITE_UI_CLIENT_ID=<travel-ui clientId>
+ * Config precedence: window.__A2A_CONFIG__ (runtime config.js, k8s) >
+ * Vite build env (VITE_PLANNER_ISSUER / VITE_UI_CLIENT_ID, local dev).
  */
 
-const ISSUER = import.meta.env.VITE_PLANNER_ISSUER as string | undefined;
-const CLIENT_ID = import.meta.env.VITE_UI_CLIENT_ID as string | undefined;
+const RUNTIME = (window as unknown as { __A2A_CONFIG__?: { plannerIssuer?: string; uiClientId?: string } })
+  .__A2A_CONFIG__ ?? {};
+const ISSUER = (RUNTIME.plannerIssuer ?? import.meta.env.VITE_PLANNER_ISSUER) as string | undefined;
+const CLIENT_ID = (RUNTIME.uiClientId ?? import.meta.env.VITE_UI_CLIENT_ID) as string | undefined;
 const REDIRECT_URI = `${window.location.origin}/auth/callback`;
 const SCOPE = "openid profile email";
 

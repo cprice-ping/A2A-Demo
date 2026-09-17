@@ -64,6 +64,11 @@ spec:
             - name: P1_PLANNER_ISSUER
               valueFrom:
                 secretKeyRef: { name: a2a-travel-planner-credentials, key: P1_PLANNER_ISSUER }
+            # OIDC gate on the agent surfaces (/agui, /a2a): no anonymous
+            # path into the prompt. UI sends the planner-tenant token on
+            # every call; card + trace stay public (discovery, observability).
+            - name: AUTH_REQUIRED
+              value: "true"
             # GAP business relationships (P0-locked audiences)
             - name: GAP_FLIGHT_ENGINE
               value: projects/3682147732/locations/us-west1/reasoningEngines/268377594200588288

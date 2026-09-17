@@ -1,0 +1,44 @@
+# travel-ui service + public ingress — same nginx-public/LE pattern as the
+# planner and AS. Static files only: short timeouts are fine (no SSE).
+apiVersion: v1
+kind: Service
+metadata:
+  name: a2a-travel-ui
+  namespace: ping-devops-cprice
+  labels:
+    app: a2a-travel-ui
+spec:
+  type: ClusterIP
+  selector:
+    app: a2a-travel-ui
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: a2a-travel-ui
+  namespace: ping-devops-cprice
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-pdo
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx-public
+  rules:
+    - host: a2a-travel-ui.ping-devops.com
+      http:
+        paths:
+          - backend:
+              service:
+                name: a2a-travel-ui
+                port:
+                  name: http
+            path: /
+            pathType: Prefix
+  tls:
+    - hosts:
+        - a2a-travel-ui.ping-devops.com
+      secretName: a2a-travel-ui-tls

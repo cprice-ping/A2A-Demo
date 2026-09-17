@@ -30,6 +30,7 @@ from urllib.request import urlopen
 
 import httpx
 import jwt as pyjwt
+from starlette.responses import JSONResponse
 
 from .trace import record
 
@@ -91,7 +92,7 @@ def validate_planner_token(token: str) -> dict:
     Signature + issuer bind the token to the planner tenant; no audience is
     enforced because PingOne user tokens carry the platform API audience
     (aud=['https://api.pingone.com']) rather than anything the planner can
-    predict — and PyJWT rejects tokens that carry an aud when the validator
+    predict — and PyJWT accepts tokens that carry an aud when the validator
     names none. The AS re-validates the same JWT cryptographically before
     any exchange, so trust rests on the signature.
     """
@@ -134,6 +135,80 @@ async def extract_user_token(request, input_data):
         {"sub": claims.get("sub", ""), "email": claims.get("email", "")},
     )
     return {"planner_user": claims.get("email") or claims.get("sub", "")}
+
+
+# ---- ingress-level auth gate (the agent prompt has no anonymous path) ----
+
+AUTH_REQUIRED = os.environ.get("AUTH_REQUIRED", "false").lower() in ("1", "true", "yes")
+
+
+class BearerAuthMiddleware:
+    """401 every agent-surface request without a valid planner-tenant Bearer.
+
+    Applies to /agui (the prompt surface — the whole point) and /a2a (the
+    A2A endpoint). Exempt: the agent card (public discovery by design),
+    OPTIONS preflights, and /api/* (trace SSE is read by EventSource,
+    which cannot send headers; the profile route enforces its own stricter
+    person-scoped check regardless of this middleware).
+
+    Toggled by AUTH_REQUIRED so the anonymous local demo keeps working;
+    the k8s deployment sets AUTH_REQUIRED=true.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not AUTH_REQUIRED:
+            await self.app(scope, receive, send)
+            return
+        path = scope.get("path", "")
+        method = scope.get("method", "GET")
+        exempt = (
+            method == "OPTIONS"
+            or path == "/a2a/.well-known/agent-card.json"
+            or path == "/api/healthz"
+            or not (
+                path.startswith("/agui")
+                or (path.startswith("/a2a") and not path.endswith("/agent-card.json"))
+            )
+        )
+        if exempt:
+            await self.app(scope, receive, send)
+            return
+        header = ""
+        for name, value in scope.get("headers", []):
+            if name == b"authorization":
+                header = value.decode("latin-1")
+                break
+        token = header[7:].strip() if header.lower().startswith("bearer ") else ""
+        if token:
+            try:
+                claims = validate_planner_token(token)
+                record(
+                    "travel-planner",
+                    "auth.user",
+                    {"sub": claims.get("sub", ""), "email": claims.get("email", "")},
+                )
+            except Exception as exc:
+                record("travel-planner", "auth.rejected", {"reason": str(exc)})
+                token = ""
+        else:
+            record(
+                "travel-planner",
+                "auth.rejected",
+                {"reason": "no bearer on agent surface", "path": path},
+            )
+        if not token:
+            response = JSONResponse(
+                {"detail": "authentication required"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+            await response(scope, receive, send)
+            return
+        user_token_var.set(token)
+        await self.app(scope, receive, send)
 
 
 # ---- token exchange (per target tenant) ----

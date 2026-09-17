@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { AGENT_BASE } from "../agents";
 
 export interface TraceEvent {
   ts: number;
@@ -22,9 +23,10 @@ interface A2AExchange {
 }
 
 const AGENT_URLS: Record<string, string> = {
-  "flight-agent": "http://localhost:8080",
-  "hotel-agent": "http://localhost:8081",
-  "travel-planner": "http://localhost:8082",
+  // Runtime config (config.js) overrides; localhost defaults for local dev.
+  "flight-agent": AGENT_BASE.flight,
+  "hotel-agent": AGENT_BASE.hotel,
+  "travel-planner": AGENT_BASE.planner,
 };
 
 /** Class-safe kind slug: CSS classes can't hold dots, so
