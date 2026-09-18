@@ -91,10 +91,15 @@ AS_ISSUER = os.environ.get("AS_ISSUER", "")
 # Demo account data: the human linked their loyalty memberships here.
 # Keyed by the person's planner-tenant sub (the AS propagates exactly that;
 # the minted profile token names no email).
+#
+# LINKAGE ONLY — no tier/discount here. The VALUE (tier, discount) is owned
+# and resolved by each specialist against its own membership records; the
+# planner owns only the person→membership map, disclosed to a specialist
+# only via an audience-bound, person-scoped pull at the profile API.
 LINKED_LOYALTY = {
     "e8b4ba57-e243-4fc6-ac8c-f6972d6115bf": [
-        {"program": "flights", "member_id": "SK-123456", "tier": "GOLD"},
-        {"program": "hotels", "member_id": "HB-789", "tier": "SILVER"},
+        {"program": "flights", "member_id": "SK-123456"},
+        {"program": "hotels", "member_id": "HB-789"},
     ],
 }
 
