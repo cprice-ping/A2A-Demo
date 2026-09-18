@@ -329,12 +329,16 @@ def _make_traced_client(target: str) -> httpx.AsyncClient:
         meta: dict = {}
         try:
             body = json.loads(request.content)
-            # Two wire shapes reach this hook: A2A 0.3 JSON-RPC
-            # ({method, params: {message}}) and GAP's HTTP+JSON form where
-            # the body IS the message ({messageId, role, parts, metadata}).
+            # Three wire shapes reach this hook: A2A 0.3 JSON-RPC
+            # ({method, params: {message}}), GAP's HTTP+JSON form where
+            # the body is a SendMessageRequest ({message: {...}},
+            # configuration: {}}), and a bare message ({messageId, parts}).
             if isinstance(body, dict) and "method" in body:
                 rpc = body.get("method")
                 message = (body.get("params") or {}).get("message") or {}
+            elif isinstance(body, dict) and isinstance(body.get("message"), dict):
+                rpc = "message:send"
+                message = body["message"]
             elif isinstance(body, dict) and "parts" in body:
                 rpc = "message:send"
                 message = body
@@ -389,6 +393,49 @@ def _make_traced_client(target: str) -> httpx.AsyncClient:
                 response_obj = json.loads(response.content)
             except Exception:
                 response_obj = None
+        # Compact inbound row — the counterpart of a2a.outbound: what the
+        # specialist SENT BACK (task state or agent text), not just the
+        # status. Message shapes: JSON-RPC result ({result: {…}}), GAP's
+        # bare Task/Message, or an error object.
+        inbound_text = ""
+        inbound_kind = ""
+        if isinstance(response_obj, dict):
+            payload = response_obj.get("result", response_obj)
+            if isinstance(payload, dict):
+                if payload.get("error"):
+                    inbound_kind = f"error: {str(payload.get('message') or payload)[:80]}"
+                elif "parts" in payload:
+                    inbound_kind = "message"
+                    inbound_text = next(
+                        (
+                            p.get("text", "")
+                            for p in payload.get("parts", [])
+                            if isinstance(p, dict) and p.get("text")
+                        ),
+                        "",
+                    )
+                elif "status" in payload:
+                    st = payload.get("status") or {}
+                    inbound_kind = f"task: {st.get('state', '?')}"
+                    msg = st.get("message") or {}
+                    inbound_text = next(
+                        (
+                            p.get("text", "")
+                            for p in msg.get("parts", [])
+                            if isinstance(p, dict) and p.get("text")
+                        ),
+                        "",
+                    )
+        record(
+            "travel-planner",
+            "a2a.inbound",
+            {
+                "target": target,
+                "status": response.status_code,
+                "kind": inbound_kind or ("stream" if is_sse else "?"),
+                "text": str(inbound_text)[:140],
+            },
+        )
         record_exchange(
             source="travel-planner",
             direction="outbound",
