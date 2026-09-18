@@ -26,8 +26,12 @@ The token MUST be minted by a token exchange (RFC 8693) and carries:
 
 - `sub` — the **person** on whose behalf the request runs (context: whose
   trip, whose loyalty)
-- `act.sub` — the **intermediary** (the calling agent's registered client
-  id) that obtained the token
+- `act.sub` — the **intermediary**: an identity of the calling agent,
+  attested by the AS from the actor token the caller presented. In this
+  deployment that is the caller's platform identity (its k8s Service
+  Account subject) — the receiving agent's allowlist names the platform
+  identities it accepts as delegation actors. No client registration at
+  the receiving agent's IdP is implied by this extension.
 - `aud` — the **destination agent's relationship URI** (e.g. `a2a://hotels`).
   Audience binding is the load-bearing property: the token is worthless at
   any other agent, so the receiving specialist only ever sees tokens

@@ -24,27 +24,40 @@ referenced from `.env` (never committed).
 
 ## Applications
 
-Per-domain model — every specialist environment hosts BOTH a person-login
-client (local, direct use of the domain) and an A2A bridge client (delegated
-use from the planner):
+Per-domain model — every specialist environment hosts a person-login
+client (local, direct use of the domain), plus an A2A bridge client
+(self-hosted delegated use — see status note; not part of the GAP
+journey):
+
+> **Status (2026-09-18):** the GAP journey no longer USES the specialist-
+> tenant bridge clients (`de62d967…`/`08eea934…`). The delegation actor is
+> the planner's k8s SA identity (see GCP-DEPLOYMENT.md, "The identity &
+> registration model") — no per-specialist IdP client is required there.
+> The bridge clients remain live for the SELF-HOSTED flavor (compose),
+> where the specialist pulls loyalty linkage from the planner profile API
+> (a reverse-direction arrangement the GAP push model avoids). The
+> planner-env `a2a-bridge` remains the exchange client specialists use
+> for person-scoped profile tokens on that self-hosted path.
 
 | Env | App | Client ID | Type / grants | Purpose |
 |---|---|---|---|---|
-| Planner | `travel-ui` | `a553fbcd-a0c7-4291-b1f6-f1667147e8c1` | WEB_APP · AUTH_CODE, PKCE S256 REQUIRED, **public** (token auth = NONE) | The chat UI's login; redirect `http://localhost:5173/auth/callback` |
-| Planner | `a2a-bridge` | `aef4ac77-1db6-480e-9e7c-389b3d299cb5` | WEB_APP · CLIENT_CREDENTIALS + **TOKEN_EXCHANGE** | Specialists exchange here for person-scoped `loyalty:read` profile tokens |
+| Planner | `travel-ui` | `a553fbcd-a0c7-4291-b1f6-f1667147e8c1` | WEB_APP · AUTH_CODE, PKCE S256 REQUIRED, **public** (token auth = NONE) | The chat UI's login; redirect `http://localhost:5173/auth/callback` (+ hosted UI redirect) |
+| Planner | `a2a-bridge` | `aef4ac77-1db6-480e-9e7c-389b3d299cb5` | WEB_APP · CLIENT_CREDENTIALS + **TOKEN_EXCHANGE** | SELF-HOSTED flavor only: specialists exchange here for person-scoped `loyalty:read` profile tokens |
 | Flights | `flights-web` | `6dccbd2a-a4a1-4617-8dd9-60643876607c` | WEB_APP · AUTH_CODE, PKCE S256 REQUIRED, **public** | Person login LOCAL to the flight domain; redirect `http://localhost:8080/auth/callback` |
-| Flights | `a2a-bridge` | `de62d967-e4b8-4cb4-8f7a-fccff5c5ff10` | WEB_APP · CLIENT_CREDENTIALS + **TOKEN_EXCHANGE** | The planner agent's actor/exchange client at the flight tenant |
+| Flights | `a2a-bridge` | `de62d967-e4b8-4cb4-8f7a-fccff5c5ff10` | WEB_APP · CLIENT_CREDENTIALS + **TOKEN_EXCHANGE** | RETIRED on GAP path (actor is now the planner's k8s SA); live on self-hosted |
 | Hotels | `hotels-web` | `0e587769-2193-4756-a31f-174254da4fbb` | WEB_APP · AUTH_CODE, PKCE S256 REQUIRED, **public** | Person login LOCAL to the hotel domain; redirect `http://localhost:8081/auth/callback` |
-| Hotels | `a2a-bridge` | `08eea934-ec0d-49e1-a6cb-ee37f57ff3c7` | WEB_APP · CLIENT_CREDENTIALS + **TOKEN_EXCHANGE** | Same, hotel tenant |
+| Hotels | `a2a-bridge` | `08eea934-ec0d-49e1-a6cb-ee37f57ff3c7` | WEB_APP · CLIENT_CREDENTIALS + **TOKEN_EXCHANGE** | RETIRED on GAP path (same as flights); live on self-hosted |
 
 Two identity flows into each specialist, both ending in a token about THE
 PERSON minted by that domain's own tenant:
 
 1. **Local person login** — direct PKCE at `flights-web`/`hotels-web`; the
    token is native to the domain (no delegation, no act claim).
-2. **A2A delegation** — planner exchanges the person's planner token at the
-   domain tenant via `a2a-bridge`; the minted token carries
-   `act={sub: a2a-bridge}` distinguishing delegated from direct.
+2. **A2A delegation** — planner exchanges the person's planner token at
+   the TokenExchange-AS; the minted token carries
+   `act={sub: <planner's k8s SA subject>}` on the GAP journey (or the
+   bridge client id on the self-hosted journey), distinguishing
+   delegated from direct.
 
 > **Type note:** the bridges are WEB_APPs modeled on the console-created
 > `cc-template` reference (CC + TOKEN_EXCHANGE, secret-basic). The MCP API
@@ -82,16 +95,23 @@ Planner ── reads each specialist's CARD: securitySchemes (token endpoint),
 Planner ── RFC 8693 at the TokenExchange-AS (a2a-token-as.ping-devops.com/as/token)
            subject_token = planner-user-token (PingOne JWT, validated at
                            planner JWKS by the AS)
-           actor_token   = planner's bridge CC JWT at the TARGET tenant
-           audience      = the specialist's A2A URL (from the card)
-           scope         = the card's demanded scopes
+           actor_token   = planner's OWN k8s SA JWT (GAP journey) or the
+                           bridge CC JWT @ the target tenant (self-hosted)
+           audience      = a2a://flights | a2a://hotels (GAP) or the
+                           specialist's A2A URL (self-hosted)
+           scope         = a2a:book
            → AS asks PingOne Authorize (planner env) for the decision,
-             then mints: sub=<person>, act={sub: <bridge client_id>},
-             aud=<specialist A2A URL>, scope=a2a:book
-Specialist /a2a middleware: validates AS JWKS (or own tenant for local
-           logins), iss/aud/act → identity into ADK session state
-Specialist loyalty: re-exchange the request's validated token at the AS
-           (actor = a2a-bridge CC @ planner, aud=planner-profile-api,
+             then mints: sub=<person>, act={sub: <SA subject | bridge client_id>},
+             aud=<relationship URI | specialist A2A URL>, scope=a2a:book
+Specialist (GAP: in-agent executor adapter; self-hosted: /a2a middleware):
+           validates AS JWKS (or own tenant for local logins),
+           iss/aud/act → identity into ADK session state
+GAP journey loyalty: the planner PUSHED the member reference in-message
+           (a2a_loyalty_ref, planner-owned linkage); the specialist
+           resolves the VALUE against its OWN membership records — no
+           planner API call, no second exchange.
+Self-hosted loyalty (pull): re-exchange the request's validated token
+           at the AS (actor = a2a-bridge CC @ planner, aud=planner-profile-api,
            scope=loyalty:read) → GET planner /api/profile/loyalty with a
            PERSON-scoped token → match member → tier discount on booking
 ```

@@ -10,13 +10,13 @@ Manifests mirroring the `a2a-token-as` pattern (same namespace
    docker push pricecs/a2a-travel-planner:latest
 
 2. **Secret** (never committed): `a2a-travel-planner-credentials` with keys
-   GOOGLE_API_KEY, P1_PLANNER_ISSUER, AS_CLIENT_ID, AS_CLIENT_SECRET,
-   P1_FLIGHTS_ISSUER, P1_FLIGHTS_BRIDGE_CLIENT_ID,
-   P1_FLIGHTS_BRIDGE_CLIENT_SECRET, P1_HOTELS_ISSUER,
-   P1_HOTELS_BRIDGE_CLIENT_ID, P1_HOTELS_BRIDGE_CLIENT_SECRET. Same values
-   as the local .env (copy from .env; do not paste secrets into transcripts):
+   GOOGLE_API_KEY, P1_PLANNER_ISSUER, AS_CLIENT_ID, AS_CLIENT_SECRET.
+   No per-specialist bridge clients: the delegation actor is the pod's
+   own k8s SA token (projected, /var/run/secrets/tokens/token — same
+   token the WIF chain uses). Values from the local .env (do not paste
+   secrets into transcripts):
    kubectl -n ping-devops-cprice create secret generic \
-     a2a-travel-planner-credentials --from-env-file=<(grep -E '^(GOOGLE_API_KEY|P1_PLANNER_ISSUER|AS_CLIENT_ID|AS_CLIENT_SECRET|P1_FLIGHTS|P1_HOTELS)' .env)
+     a2a-travel-planner-credentials --from-env-file=<(grep -E '^(GOOGLE_API_KEY|P1_PLANNER_ISSUER|AS_CLIENT_ID|AS_CLIENT_SECRET)' .env)
 
 3. **k8s SA for WIF** (P1 runbook, already done):
    kubectl -n ping-devops-cprice get sa travel-planner  # annotated with the Google SA
