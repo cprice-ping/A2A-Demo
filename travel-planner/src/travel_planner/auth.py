@@ -306,7 +306,10 @@ def exchange_token(tenant: str, subject_token: str) -> str | None:
         {
             "target": tenant,
             "sub": claims.get("sub", ""),
-            "act": (claims.get("act") or {}).get("sub", ""),
+            # act is a NESTED object on the token (act.sub) — keep the
+            # nested shape in the trace rather than flattening to a
+            # scalar, which misread as the token carrying a bare string.
+            "act": claims.get("act") or {},
             "aud": claims.get("aud", ""),
             "scope": claims.get("scope", ""),
             "elapsed_ms": elapsed_ms,
