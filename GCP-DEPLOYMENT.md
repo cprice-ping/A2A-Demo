@@ -121,6 +121,29 @@ GAP push model deliberately avoids).
   role — one workload identity, two governance surfaces (Google IAM at
   the platform edge, P1AZ/specialist policy at the delegation layer).
 
+### Presence, not anonymity — the three rungs at a specialist gate
+
+"Anonymous" is the wrong word for what the specialist's gate refuses.
+The rung that matters is WHO IS PRESENT, and the specialist chooses
+what each rung may do:
+
+| Rung | Token presents | Meaning | Specialist policy |
+|---|---|---|---|
+| Not a caller | no token | nothing to hold accountable | reject, non-negotiable (fail-closed gate) |
+| **Person-less session** | valid OBO, sub = a WORKLOAD identity (e.g. the planner's own SA), act = same | "an authenticated planner session, no person present" | specialist's choice: may search, never book (P1AZ does not grant a2a:book to workload subjects) |
+| **Person delegation** | valid OBO, sub = person, act = planner | the full story | P1AZ row + specialist policy |
+
+Two requirements that are easy to conflate and must stay separate:
+TOKEN REQUIRED (every request — anti prompt-injection, anti model-spend;
+enforced by the executor gate) vs PERSON REQUIRED (booking only;
+enforced by the a2a:book scope check in the booking tools). A person-
+less session token is fully valid — attested, audience-bound, with the
+workload as both subject and actor — and the SPECIALIST decides what it
+may do, per scope. Deployment topology note: a specialist agent may
+serve mixed audiences (planner-delegated persons + planner service
+sessions) or be a dedicated planner-only conduit — that is a deployment
+choice, not a code difference.
+
 ### The pattern composes (what an enterprise deployment adds)
 
 This demo implements the identity→A2A pattern at ONE tier. The
