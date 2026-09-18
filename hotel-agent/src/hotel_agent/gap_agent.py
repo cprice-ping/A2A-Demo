@@ -23,8 +23,10 @@ forces the Vertex model path (model auth on GAP is Google's, not ours).
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
+from a2a.types import Message
 from google.adk.agents import LlmAgent
 from google.adk.a2a.executor.a2a_agent_executor import A2aAgentExecutor
 from vertexai.agent_engines.templates.a2a import A2aAgent, create_agent_card
@@ -107,6 +109,13 @@ class GapExecutorAdapter:
     the same state key the self-hosted flavor's identity_request_converter
     fills — so book_hotel_identity_aware's loyalty pull sees the same
     context shape on both hosts.
+
+    An INVALID in-message token FAILS THE TASK (final TS_FAILED event with
+    the validation error) — never silent degradation: a request that
+    presents an identity must be treated as that identity or not run.
+    An ABSENT token proceeds — booking tools enforce person-scoping
+    themselves and refuse without a validated identity (search stays
+    anonymous-allowed).
     """
 
     def __init__(self, runner: Any):
@@ -117,8 +126,33 @@ class GapExecutorAdapter:
         call_context = getattr(context, "call_context", None)
         if call_context and getattr(call_context, "state", None):
             token = call_context.state.get(IDENTITY_METADATA_KEY, "") or ""
-        claims = _validate_delegated_token(token)
-        if claims and call_context is not None:
+        if token:
+            claims = _validate_delegated_token(token)
+            if claims is None:
+                # Invalid presented identity: fail the task, do not run.
+                from google.adk.a2a import _compat  # noqa
+
+                await event_queue.enqueue_event(
+                    _compat.make_task_status_update_event(
+                        task_id=context.task_id,
+                        context_id=context.context_id,
+                        status=_compat.make_task_status(
+                            _compat.TS_FAILED,
+                            message=Message(
+                                message_id=str(uuid.uuid4()),
+                                role=_compat.ROLE_AGENT,
+                                parts=[_compat.make_text_part(
+                                    "Authentication failed: the delegated "
+                                    "identity on this request is invalid "
+                                    "(wrong issuer or audience for this "
+                                    "agent). No action taken."
+                                )],
+                            ),
+                        ),
+                        final=True,
+                    )
+                )
+                return
             call_context.state["auth"] = {
                 "sub": claims.get("sub", ""),
                 "act": {"sub": (claims.get("act") or {}).get("sub", "")},

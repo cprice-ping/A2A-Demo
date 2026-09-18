@@ -24,15 +24,29 @@ async def book_hotel_identity_aware(
 ) -> dict:
     """Book a hotel; applies the delegated caller's loyalty discount.
 
-    Identity comes from the request context (contextvars on the
-    self-hosted path, the executor adapter's injection on GAP) — a bare
-    client token never carries a person, so loyalty applies only when a
-    delegated identity is present and the chained profile exchange
-    succeeds.
+    Booking is PERSON-SCOPED: it refuses to run without a VALIDATED
+    delegated identity. Identity comes from the request context
+    (contextvars on the self-hosted path, the executor adapter's
+    injection on GAP). No identity → an explicit error the LLM relays to
+    the caller ("authentication required to book") — never an anonymous
+    booking. (Searching stays anonymous-allowed; the extension is
+    required=False for search, not booking.)
     """
     identity = auth_module.current_identity.get()
+    if not (identity and identity.get("sub")):
+        from .trace import record
+
+        record(
+            "hotel-agent",
+            "auth.booking_refused",
+            {"reason": "no validated person identity in request context"},
+        )
+        return {
+            "error": "Booking requires an authenticated traveler identity "
+            "(delegated token missing or invalid) — no booking made."
+        }
     loyalty = None
-    if identity and identity.get("sub") and auth_module.current_token.get():
+    if auth_module.current_token.get():
         from .loyalty import lookup_loyalty
 
         loyalty = lookup_loyalty(auth_module.current_token.get())
