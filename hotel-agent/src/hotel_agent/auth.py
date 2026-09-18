@@ -167,6 +167,9 @@ class BearerAuthMiddleware:
                 "sub": claims.get("sub", ""),
                 "actor": (claims.get("act") or {}).get("sub", ""),
                 "scope": claims.get("scope", ""),
+                # Loyalty reference pushed by the planner (delegated-
+                # identity extension) — resolved against OUR records.
+                "loyalty_ref": claims.get("loyalty_ref", ""),
             }
         )
         current_token.set(token)
@@ -227,6 +230,7 @@ def identity_request_converter(request: Any, part_converter: Any) -> Any:
                 "sub": auth_claims.get("sub", ""),
                 "actor": (auth_claims.get("act") or {}).get("sub", ""),
                 "scope": auth_claims.get("scope", ""),
+                "loyalty_ref": auth_claims.get("loyalty_ref", ""),
             }
         }
     return run_request

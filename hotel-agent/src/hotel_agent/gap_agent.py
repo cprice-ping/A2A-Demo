@@ -123,9 +123,28 @@ class GapExecutorAdapter:
 
     async def execute(self, context: Any, event_queue: Any) -> None:
         token = ""
+        # Identity + pushed business context ride the MESSAGE METADATA
+        # (delegated-identity extension) — the A2A-standard location, what
+        # the planner's meta provider set. RequestContext.metadata is the
+        # MessageToDict'd view; call_context.state is NOT populated from
+        # message metadata by the routes layer (ASGI-level auth/headers
+        # only), so metadata is the authoritative read.
+        meta: dict[str, Any] = {}
+        try:
+            meta = dict(getattr(context, "metadata", None) or {})
+        except Exception:
+            meta = {}
         call_context = getattr(context, "call_context", None)
-        if call_context and getattr(call_context, "state", None):
-            token = call_context.state.get(IDENTITY_METADATA_KEY, "") or ""
+        if not meta and call_context and getattr(call_context, "state", None):
+            meta = {
+                k: v
+                for k, v in call_context.state.items()
+                if isinstance(v, str)
+            }
+        token = str(meta.get(IDENTITY_METADATA_KEY, "") or "")
+        # Pushed loyalty member reference (delegated-identity extension) —
+        # resolved against OUR records; see flight mirror for the contract.
+        loyalty_ref = str(meta.get("a2a_loyalty_ref", "") or "")
         if token:
             claims = _validate_delegated_token(token)
             if claims is None:
@@ -157,6 +176,7 @@ class GapExecutorAdapter:
                 "sub": claims.get("sub", ""),
                 "act": {"sub": (claims.get("act") or {}).get("sub", "")},
                 "scope": claims.get("scope", ""),
+                "loyalty_ref": loyalty_ref,
             }
             record(
                 "hotel-agent",
@@ -166,6 +186,7 @@ class GapExecutorAdapter:
                     "act": (claims.get("act") or {}).get("sub", ""),
                     "aud": claims.get("aud", ""),
                     "scope": claims.get("scope", ""),
+                    "loyalty_ref": loyalty_ref,
                     "via": "gap-message",
                 },
             )

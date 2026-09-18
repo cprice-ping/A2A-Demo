@@ -17,6 +17,7 @@ from __future__ import annotations
 from . import auth as auth_module
 from .api import data
 from . import store
+from .loyalty import MEMBERS
 
 
 async def book_hotel_identity_aware(
@@ -45,8 +46,34 @@ async def book_hotel_identity_aware(
             "error": "Booking requires an authenticated traveler identity "
             "(delegated token missing or invalid) — no booking made."
         }
+    # Loyalty: PUSH model — the planner attached the person's member
+    # reference for this program outside the OBO bearer; we resolve the
+    # VALUE against OUR OWN membership records. Self-hosted fallback:
+    # pull the linkage from the planner profile API.
     loyalty = None
-    if auth_module.current_token.get():
+    loyalty_ref = identity.get("loyalty_ref", "")
+    if loyalty_ref:
+        member = MEMBERS.get(loyalty_ref)
+        from .trace import record
+
+        if member:
+            record(
+                "hotel-agent",
+                "auth.loyalty",
+                {"member_id": loyalty_ref, "tier": member["tier"], "via": "pushed-ref"},
+            )
+            loyalty = {
+                "member_id": loyalty_ref,
+                "tier": member["tier"],
+                "discount_pct": member["discount_pct"],
+            }
+        else:
+            record(
+                "hotel-agent",
+                "auth.loyalty",
+                {"member_id": loyalty_ref, "tier": None, "via": "pushed-ref-unknown"},
+            )
+    elif auth_module.current_token.get():
         from .loyalty import lookup_loyalty
 
         loyalty = lookup_loyalty(auth_module.current_token.get())

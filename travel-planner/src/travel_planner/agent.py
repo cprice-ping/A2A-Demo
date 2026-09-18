@@ -222,6 +222,14 @@ def _identity_meta_provider_for(target: str):
     and that the token is BOUND FOR IT (audience-bound — worthless at any
     other agent).
 
+    With the OBO token, the planner PUSHES the person's loyalty REFERENCE
+    for this target's program (like a travel agent writing the traveler's
+    frequent-flyer number on the reservation): the map is the planner's
+    own account data, attached at delegation under the person's own
+    delegation — the SPECIALIST still owns the VALUE (tier/discount),
+    resolved against its own membership records; a pushed reference is a
+    hint to look up, never a claim.
+
     Failure is traced and falls back to the raw person token so the GAP
     flavor degrades the same way the self-hosted flavor does (specialist
     rejects it; the conversation surfaces the error).
@@ -233,12 +241,34 @@ def _identity_meta_provider_for(target: str):
             return {}
         exchanged = auth_module.exchange_token(target, person)
         if exchanged:
-            # Extension activation in-message (the GAP edge hides transport
-            # headers from the agent; metadata is the in-message channel).
-            return {
+            meta: dict[str, Any] = {
+                # Extension activation in-message (the GAP edge hides
+                # transport headers from the agent; metadata is the
+                # in-message channel).
                 "a2a_demo_identity": exchanged,
                 "a2a_extensions": [IDENTITY_EXTENSION_URI],
             }
+            # Loyalty REFERENCE for this target's program — planner-owned
+            # linkage, keyed by the person sub (validated at the gate).
+            # Value resolution is the specialist's job, against its own
+            # membership records.
+            try:
+                sub = auth_module.validate_planner_token(person).get("sub", "")
+                from .main import LINKED_LOYALTY
+
+                program = "flights" if "flight" in target else "hotels"
+                for link in LINKED_LOYALTY.get(sub, []):
+                    if link.get("program") == program:
+                        meta["a2a_loyalty_ref"] = link.get("member_id", "")
+                        break
+                record(
+                    "travel-planner",
+                    "auth.loyalty_ref_pushed",
+                    {"target": target, "member_id": meta.get("a2a_loyalty_ref", "")},
+                )
+            except Exception:
+                pass  # claims decode failure → no reference; booking still works
+            return meta
         record(
             "travel-planner",
             "auth.identity_fallback_raw",
@@ -296,10 +326,20 @@ def _make_traced_client(target: str) -> httpx.AsyncClient:
         request_body = None
         text = ""
         rpc = None
+        meta: dict = {}
         try:
             body = json.loads(request.content)
-            rpc = body.get("method")
-            message = (body.get("params") or {}).get("message") or {}
+            # Two wire shapes reach this hook: A2A 0.3 JSON-RPC
+            # ({method, params: {message}}) and GAP's HTTP+JSON form where
+            # the body IS the message ({messageId, role, parts, metadata}).
+            if isinstance(body, dict) and "method" in body:
+                rpc = body.get("method")
+                message = (body.get("params") or {}).get("message") or {}
+            elif isinstance(body, dict) and "parts" in body:
+                rpc = "message:send"
+                message = body
+            else:
+                message = {}
             text = next(
                 (
                     p.get("text")
@@ -308,13 +348,23 @@ def _make_traced_client(target: str) -> httpx.AsyncClient:
                 ),
                 "",
             )
+            meta = message.get("metadata") or {}
             request_body = body
         except Exception:
             pass
         record(
             "travel-planner",
             "a2a.outbound",
-            {"target": target, "rpc": rpc, "text": str(text)[:140]},
+            {
+                "target": target,
+                "rpc": rpc,
+                "text": str(text)[:140],
+                # What the planner translated into the delegation: person
+                # identity present? loyalty reference pushed? (Values for
+                # the ref only — the OBO token itself is never logged.)
+                "identity": "a2a_demo_identity" in meta,
+                "loyalty_ref": meta.get("a2a_loyalty_ref", ""),
+            },
         )
         # Stash for the response hook. NOTE: use a plain attribute —
         # request.extensions belongs to httpcore transport plumbing, which
