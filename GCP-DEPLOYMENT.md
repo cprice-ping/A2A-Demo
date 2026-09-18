@@ -121,6 +121,45 @@ GAP push model deliberately avoids).
   role — one workload identity, two governance surfaces (Google IAM at
   the platform edge, P1AZ/specialist policy at the delegation layer).
 
+### The pattern composes (what an enterprise deployment adds)
+
+This demo implements the identity→A2A pattern at ONE tier. The
+enterprise implementation is the same pattern at EVERY tier:
+
+```
+Person ─▶ Planner ─[exchange @ planner-side AS]─▶ Specialist agent
+                                                        │
+                                                        ▼
+                              Specialist ─[exchange @ ITS OWN AS]─▶ its MCP servers / tools
+```
+
+Each specialist is simultaneously a relying party (validating the
+inbound OBO: iss/aud/act against its own trust config) and a caller —
+receiving a delegated identity, deciding what's authorized (its own
+P1AZ), exchanging at its own AS for a token bound for its own tool
+layer, presenting its own actor. This demo shows one complete link;
+each specialist doing "all that work" with its own AS is the composed
+deployment (covered separately by the single-specialist deep-dive
+demo). Two properties make the recursion real with today's machinery:
+
+- **The act chain composes per RFC 8693** — nested act: when the
+  specialist exchanges at its own AS, the minted token can carry
+  act={sub: specialist-identity, act: {sub: planner-SA-subject}}. The
+  AS preserves the inbound chain (prior_actor in its mint logic), so a
+  downstream tool sees the FULL delegation history: person → planner →
+  specialist → tool. Audit at depth, from the same machinery.
+- **Nothing here needs redesign to recurse.** The AS is issuer-agnostic
+  (discovery-based validation — it accepted the EKS OIDC issuer with no
+  code change); each specialist tenant already runs its own IdP and its
+  own CC app (marked "retired from the inbound path" above — in the
+  composed picture that app is NOT retired, it is repurposed as the
+  specialist's outbound actor). Recursion is deployment, not redesign.
+
+Scope note: the demo's thesis is the cross-org Identity→A2A boundary.
+Intra-org tool-call governance (specialist→MCP) is the same pattern at
+the next tier — deliberately out of scope here, shown dashed in the
+architecture diagram.
+
 ## The business relationship: how a planner connects to a specialist
 
 Specialists on GAP don't advertise their auth contract — GAP strips
