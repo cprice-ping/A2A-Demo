@@ -425,32 +425,44 @@ def _make_traced_client(target: str) -> httpx.AsyncClient:
         inbound_text = ""
         inbound_kind = ""
         if isinstance(response_obj, dict):
-            payload = response_obj.get("result", response_obj)
+            payload = response_obj.get("result") or response_obj.get("task") or response_obj
             if isinstance(payload, dict):
+                state = ""
                 if payload.get("error"):
                     inbound_kind = f"error: {str(payload.get('message') or payload)[:80]}"
-                elif "parts" in payload:
-                    inbound_kind = "message"
-                    inbound_text = next(
-                        (
-                            p.get("text", "")
-                            for p in payload.get("parts", [])
-                            if isinstance(p, dict) and p.get("text")
-                        ),
-                        "",
-                    )
-                elif "status" in payload:
+                else:
                     st = payload.get("status") or {}
-                    inbound_kind = f"task: {st.get('state', '?')}"
-                    msg = st.get("message") or {}
-                    inbound_text = next(
-                        (
-                            p.get("text", "")
-                            for p in msg.get("parts", [])
-                            if isinstance(p, dict) and p.get("text")
-                        ),
-                        "",
-                    )
+                    state = str(st.get("state", "") or "")
+                    # States arrive as enum names (TASK_STATE_COMPLETED) —
+                    # strip the prefix for the row.
+                    if state.startswith("TASK_STATE_"):
+                        state = state[len("TASK_STATE_"):]
+                    # Reply text priority: status message → artifacts →
+                    # top-level parts (bare Message shape). GAP puts the
+                    # reply in artifacts; status.message.parts is empty.
+                    for source in (
+                        [st.get("message") or {}]
+                        + list(payload.get("artifacts") or [])
+                        + [payload]
+                    ):
+                        parts = source.get("parts") or []
+                        text = next(
+                            (
+                                p.get("text", "")
+                                for p in parts
+                                if isinstance(p, dict) and p.get("text")
+                            ),
+                            "",
+                        )
+                        if text:
+                            inbound_text = text
+                            break
+                    if state:
+                        inbound_kind = f"task: {state}"
+                    elif payload.get("messageId") or "parts" in payload:
+                        inbound_kind = "message"
+                    else:
+                        inbound_kind = ""
         record(
             "travel-planner",
             "a2a.inbound",
