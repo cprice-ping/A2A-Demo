@@ -558,12 +558,15 @@ body {
 }
 
 .activity-detail {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Narrative rows (the delegation story) are meant to be READ, not
+     truncated: wrap instead of ellipsis. Every row still expands to the
+     raw JSON for the wire-level view — but the summary should never
+     hide its own content. */
   color: var(--ink);
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .kind-a2a-request,
