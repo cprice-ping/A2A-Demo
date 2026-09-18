@@ -352,7 +352,15 @@ def _make_traced_client(target: str) -> httpx.AsyncClient:
                 ),
                 "",
             )
-            meta = message.get("metadata") or {}
+            # Metadata location depends on the wire shape: on GAP's
+            # SendMessageRequest the meta provider's dict lands at
+            # REQUEST level (SendMessageRequest.metadata, sibling of
+            # message); on JSON-RPC/bare-message shapes it lives inside
+            # the message. Merge both — request level wins on collision.
+            meta = {
+                **(body.get("metadata") or {}),
+                **(message.get("metadata") or {}),
+            }
             request_body = body
         except Exception:
             pass
