@@ -38,9 +38,16 @@ gcloud beta iam workload-identity-pools create-cred-config \
 kubectl -n "$NS" create configmap "$CM" --from-file=credential-config.json="$TMP_CFG" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-echo "== 4/5 apply manifests =="
 kubectl apply -f k8s/travel-planner/deployment.yaml
 kubectl apply -f k8s/travel-planner/service-ingress.yaml
+
+# The image tag is the floating :latest, so a rebuilt image does NOT change
+# the pod template — `kubectl apply` is then a no-op (same ReplicaSet, no
+# new pod, no re-pull) and "rollout status" returns for a rollout that
+# never started. Force the restart so the pod actually re-pulls the
+# freshly-pushed image (equivalent to manually deleting the pod).
+echo "== 4/5 apply manifests + forced rollout =="
+kubectl -n "$NS" rollout restart deploy/a2a-travel-planner
 
 echo "== 5/5 rollout =="
 kubectl -n "$NS" rollout status deploy/a2a-travel-planner --timeout=180s
