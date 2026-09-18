@@ -83,19 +83,22 @@ function describe(e: TraceEvent): string {
       return `${d.rpc ?? "message/send"}: "${d.text ?? ""}"${d.elapsed_ms ? ` · ${d.elapsed_ms}ms` : ""}`;
     case "a2a.outbound": {
       // The delegation in one line: WHO is being acted for, WHAT was
-      // asked, and WHAT context rides with it — in the order the
-      // architecture story is told.
+      // asked, and WHAT context rides with it — named by channel so the
+      // "in the A2A message, as metadata (not the message text)" fact is
+      // explicit.
       const bits = [`→ ${d.target}`];
       bits.push(`"${d.text ?? ""}"`);
       const ctx: string[] = [];
-      if (d.identity) ctx.push("delegated identity");
-      if (d.loyalty_ref) ctx.push(`loyalty ${d.loyalty_ref}`);
+      if (d.identity) ctx.push("OBO identity as request-metadata");
+      if (d.loyalty_ref) ctx.push(`loyalty ${d.loyalty_ref} as request-metadata`);
       if (ctx.length) bits.push(`· ${ctx.join(" · ")}`);
       if (!d.identity && !d.loyalty_ref) bits.push("· (no identity attached)");
       return bits.join(" ");
     }
-    case "a2a.inbound":
-      return `← ${d.target}: ${d.kind ?? ""}${d.text ? ` "${d.text}"` : ""} · HTTP ${d.status ?? "?"}`;
+    case "a2a.inbound": {
+      const what = d.kind && d.kind !== "?" ? d.kind : "response received";
+      return `← ${d.target}: ${what}${d.text ? ` "${d.text}"` : ""} · HTTP ${d.status ?? "?"}`;
+    }
     case "a2a.card_fetch":
       return String(d.url ?? "");
     case "mcp.call":

@@ -372,10 +372,16 @@ def _make_traced_client(target: str) -> httpx.AsyncClient:
                 "rpc": rpc,
                 "text": str(text)[:140],
                 # What the planner translated into the delegation: person
-                # identity present? loyalty reference pushed? (Values for
-                # the ref only — the OBO token itself is never logged.)
+                # identity present? loyalty reference pushed? Both ride as
+                # REQUEST METADATA (in-message, not in the bearer; not in
+                # the message text). Values for the ref only — the OBO
+                # token itself is never logged.
                 "identity": "a2a_demo_identity" in meta,
+                "identity_in": "request-metadata" if "a2a_demo_identity" in meta else "",
                 "loyalty_ref": meta.get("a2a_loyalty_ref", ""),
+                "loyalty_ref_in": (
+                    "request-metadata" if meta.get("a2a_loyalty_ref") else ""
+                ),
             },
         )
         # Stash for the response hook. NOTE: use a plain attribute —
@@ -391,13 +397,24 @@ def _make_traced_client(target: str) -> httpx.AsyncClient:
         target = meta.get("target", "unknown")
         content_type = response.headers.get("content-type", "")
         is_sse = "text/event-stream" in content_type
-        response_obj: Any
+        response_obj: Any = None
         if is_sse:
             # Response body is a stream consumed by the A2A client; record
             # status only (the SPECIALIST's own trace holds the full exchange).
             response_obj = {"streamed": True}
         else:
+            # The A2A client reads responses through client.stream(), so at
+            # event-hook time the body is NOT yet loaded — touching
+            # .content raises ResponseNotRead (silently swallowed below,
+            # which is why every exchange recorded response: null). aread()
+            # inside the hook loads the bytes; httpx replays them to the
+            # caller afterwards (non-streaming responses are buffered and
+            # re-served, so the client still sees its full body).
+            if getattr(response, "is_stream_consumed", False) or not response.is_closed:
+                pass  # streamed case handled above
             try:
+                if not response.is_closed and not is_sse:
+                    await response.aread()
                 response_obj = json.loads(response.content)
             except Exception:
                 response_obj = None
