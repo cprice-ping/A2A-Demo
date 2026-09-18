@@ -45,6 +45,7 @@ PLANNER_AUDIENCE = os.environ.get("P1_PROFILE_AUDIENCE", "")
 LEEWAY = 30
 
 JWT_TYPE = "urn:ietf:params:oauth:token-type:jwt"
+ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token"
 
 # Registry of exchange targets. The SECURITY requirements (token endpoint,
 # audience, scopes) come from each specialist's agent card (A2A discovery —
@@ -267,12 +268,15 @@ def exchange_token(tenant: str, subject_token: str) -> str | None:
 
     body = {
         "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
-        # Every input is declared as a JWT and the AS validates both
-        # cryptographically at their issuers' OIDC discovery (person
-        # token at the planner tenant; the SA token at the EKS OIDC
-        # issuer) — strict path, no introspection.
+        # Subject declared as an OPAQUE ACCESS TOKEN: the AS forwards it
+        # to P1AZ, whose policy introspects it at the planner tenant
+        # (RFC 7662) — the person must be STILL IN SESSION at mint time.
+        # (JWT declaration would let a stale/revoked token pass on
+        # signature alone; introspection closes that window.) The actor
+        # stays a JWT: the SA token validates cryptographically at the
+        # EKS OIDC issuer, no session concept.
         "subject_token": subject_token,
-        "subject_token_type": JWT_TYPE,
+        "subject_token_type": ACCESS_TOKEN_TYPE,
         "audience": security["audience"],
         "scope": " ".join(security["scopes"]),
     }
