@@ -19,7 +19,7 @@ echo "== 2/5 create secret (values from .env, via temp file) =="
 TMP_ENV="$(mktemp)"
 TMP_CFG="$(mktemp)"
 trap 'rm -f "$TMP_ENV" "$TMP_CFG"' EXIT
-grep -E '^(GOOGLE_API_KEY|P1_PLANNER_ISSUER|AS_CLIENT_ID|AS_CLIENT_SECRET|P1_FLIGHTS|P1_HOTELS)' .env > "$TMP_ENV"
+grep -E '^(GOOGLE_API_KEY|P1_PLANNER_ISSUER|AS_CLIENT_ID|AS_CLIENT_SECRET)' .env > "$TMP_ENV"
 kubectl -n "$NS" create secret generic "$SECRET" --from-env-file="$TMP_ENV" \
   --dry-run=client -o yaml | kubectl apply -f -
 

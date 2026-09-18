@@ -48,25 +48,12 @@ JWT_TYPE = "urn:ietf:params:oauth:token-type:jwt"
 
 # Registry of exchange targets. The SECURITY requirements (token endpoint,
 # audience, scopes) come from each specialist's agent card (A2A discovery —
-# see agent.card_security); only the planner's OWN client registrations at
-# the tenants that mint actor tokens are configured here (OAuth client
-# registration is out-of-band by design). "actor" = (issuer, client_id,
-# secret) of the planner's bridge client_credentials at that tenant.
+# see agent.card_security). The ACTOR on every exchange is the planner's
+# own platform identity (the k8s SA JWT — see actor_token()); the planner
+# holds NO per-specialist IdP registrations on this path.
 TARGET_TENANTS: dict[str, dict[str, Any]] = {
-    "flight-agent": {
-        "actor": {
-            "issuer": os.environ.get("P1_FLIGHTS_ISSUER", ""),
-            "client_id": os.environ.get("P1_FLIGHTS_BRIDGE_CLIENT_ID", ""),
-            "client_secret": os.environ.get("P1_FLIGHTS_BRIDGE_CLIENT_SECRET", ""),
-        },
-    },
-    "hotel-agent": {
-        "actor": {
-            "issuer": os.environ.get("P1_HOTELS_ISSUER", ""),
-            "client_id": os.environ.get("P1_HOTELS_BRIDGE_CLIENT_ID", ""),
-            "client_secret": os.environ.get("P1_HOTELS_BRIDGE_CLIENT_SECRET", ""),
-        },
-    },
+    "flight-agent": {},
+    "hotel-agent": {},
 }
 
 # The human's planner token for the current invocation (set per request).
@@ -213,49 +200,62 @@ class BearerAuthMiddleware:
 
 # ---- token exchange (per target tenant) ----
 
-_actor_cache: dict[str, tuple[float, str]] = {}
 _exchange_cache: dict[str, tuple[float, str]] = {}
-ACTOR_TTL = 300  # refresh actor CC tokens 30s before their 3600s expiry
 EXCHANGE_TTL = 240  # conservative vs PingOne's 300s exchanged-token lifetime
 
+# The ACTOR is the planner's own platform identity: the k8s Service Account
+# JWT (projected, WIF-audience) on EKS, or an explicit env-provided actor
+# token locally. No per-specialist IdP registrations — the AS validates
+# whatever actor JWT it is handed (against the EKS OIDC issuer's JWKS) and
+# stamps act.sub from it. That platform identity is what specialists see
+# as the acting intermediary and what their allowlists key on.
+_ACTOR_TOKEN_FILE = os.environ.get("ACTOR_TOKEN_FILE", "/var/run/secrets/tokens/token")
+_LOCAL_ACTOR_TOKEN = os.environ.get("LOCAL_ACTOR_TOKEN", "")
+_actor_local_cache: tuple[float, str] | None = None
 
-def actor_token(tenant: str) -> str:
-    """travel-planner's client_credentials token at the target tenant (actor)."""
-    actor = TARGET_TENANTS[tenant]["actor"]
-    hit = _actor_cache.get(tenant)
-    if hit and hit[0] > time.time():
-        return hit[1]
-    resp = httpx.post(
-        f"{actor['issuer']}/token",
-        data={"grant_type": "client_credentials"},
-        auth=(actor["client_id"], actor["client_secret"]),
-        timeout=15.0,
-    )
-    resp.raise_for_status()
-    token = resp.json()["access_token"]
-    _actor_cache[tenant] = (time.time() + ACTOR_TTL, token)
-    return token
+
+def actor_token() -> str:
+    """The planner's actor JWT: the k8s SA token in-cluster, env token locally.
+
+    The projected SA token rotates (kubelet refreshes near expiry), so it
+    is read fresh per exchange — reading a small file is cheaper than any
+    cache-invalidation story. Locally (compose, no k8s), LOCAL_ACTOR_TOKEN
+    supplies the actor; absent both, returns "" and exchange_token runs
+    actor-less (the AS permits it; act then carries the prior chain).
+    """
+    global _actor_local_cache
+    if _LOCAL_ACTOR_TOKEN:
+        return _LOCAL_ACTOR_TOKEN
+    try:
+        with open(_ACTOR_TOKEN_FILE, encoding="utf-8") as fh:
+            token = fh.read().strip()
+        if token:
+            return token
+    except OSError:
+        pass
+    return ""
 
 
 def exchange_token(tenant: str, subject_token: str) -> str | None:
-    """RFC 8693: subject (the human @planner) + actor (planner CC) -> target token.
+    """RFC 8693: subject (the human @planner) + actor (planner's k8s SA) -> target token.
 
-    Audience and scope come from the target's agent card (A2A discovery,
-    stored in TARGET_TENANTS[tenant]["security"] by agent.card_security);
-    the AS client authenticates the exchange and the per-tenant bridge
-    client rides as the actor token. Returns None on failure (consent
-    required, invalid subject, etc.); the failure is traced and the caller
-    proceeds unauthenticated.
+    Audience and scope come from the target's relationship record (GAP
+    mode) or agent card (self-hosted), stored in
+    TARGET_TENANTS[tenant]["security"]. The AS client authenticates the
+    exchange; the ACTOR is the planner's own platform identity — the k8s
+    Service Account JWT (WIF-audience projected token), validated by the
+    AS against the EKS OIDC issuer and stamped as act.sub. No per-
+    specialist IdP registration is involved: the planner needs no
+    credentials at any specialist's IdP to delegate. Returns None on
+    failure (policy denied, invalid subject, etc.); the failure is
+    traced and the caller proceeds unauthenticated.
     """
     cfg = TARGET_TENANTS[tenant]
     security = cfg.get("security") or {}
-    actor = cfg["actor"]
-    # The AS client authenticates the exchange; the per-tenant bridge
-    # client rides as the actor token (its CC JWT is fetched by
-    # actor_token(tenant)). Without either side, delegation can't run.
+    # The AS client authenticates the exchange. The actor is the
+    # planner's platform identity (k8s SA token); per-tenant bridge
+    # clients are NOT part of the GAP delegation path.
     if not AS_ISSUER or not AS_CLIENT_ID or not subject_token:
-        return None
-    if not actor["client_id"] or not actor["client_secret"]:
         return None
     if not security.get("audience") or not security.get("scopes"):
         return None
@@ -267,16 +267,19 @@ def exchange_token(tenant: str, subject_token: str) -> str | None:
 
     body = {
         "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
-        # PingOne only issues JWT access tokens, so every input is declared
-        # as a JWT and the AS validates both cryptographically at their
-        # issuers' JWKS (strict path — no introspection).
+        # Every input is declared as a JWT and the AS validates both
+        # cryptographically at their issuers' OIDC discovery (person
+        # token at the planner tenant; the SA token at the EKS OIDC
+        # issuer) — strict path, no introspection.
         "subject_token": subject_token,
         "subject_token_type": JWT_TYPE,
-        "actor_token": actor_token(tenant),
-        "actor_token_type": JWT_TYPE,
         "audience": security["audience"],
         "scope": " ".join(security["scopes"]),
     }
+    actor = actor_token()
+    if actor:
+        body["actor_token"] = actor
+        body["actor_token_type"] = JWT_TYPE
     started = time.time()
     resp = httpx.post(
         f"{AS_ISSUER}/as/token",

@@ -92,26 +92,10 @@ spec:
             - name: AS_CLIENT_SECRET
               valueFrom:
                 secretKeyRef: { name: a2a-travel-planner-credentials, key: AS_CLIENT_SECRET }
-            # Planner's bridge client registrations at each specialist tenant
-            - name: P1_FLIGHTS_ISSUER
-              valueFrom:
-                secretKeyRef: { name: a2a-travel-planner-credentials, key: P1_FLIGHTS_ISSUER }
-            - name: P1_FLIGHTS_BRIDGE_CLIENT_ID
-              valueFrom:
-                secretKeyRef: { name: a2a-travel-planner-credentials, key: P1_FLIGHTS_BRIDGE_CLIENT_ID }
-            - name: P1_FLIGHTS_BRIDGE_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef: { name: a2a-travel-planner-credentials, key: P1_FLIGHTS_BRIDGE_CLIENT_SECRET }
-            - name: P1_HOTELS_ISSUER
-              valueFrom:
-                secretKeyRef: { name: a2a-travel-planner-credentials, key: P1_HOTELS_ISSUER }
-            - name: P1_HOTELS_BRIDGE_CLIENT_ID
-              valueFrom:
-                secretKeyRef: { name: a2a-travel-planner-credentials, key: P1_HOTELS_BRIDGE_CLIENT_ID }
-            - name: P1_HOTELS_BRIDGE_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef: { name: a2a-travel-planner-credentials, key: P1_HOTELS_BRIDGE_CLIENT_SECRET }
-            # Profile API audience (specialists' loyalty pulls)
+            # No per-specialist bridge clients: the exchange ACTOR is the
+            # planner's own platform identity (the projected k8s SA token
+            # at /var/run/secrets/tokens/token, read fresh per exchange).
+            # Profile API audience (self-hosted loyalty pull flavor)
             - name: P1_PROFILE_AUDIENCE
               value: planner-profile-api
             # WIF on EKS: no metadata server here, so google.auth needs the

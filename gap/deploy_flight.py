@@ -68,10 +68,13 @@ ENGINE_ENV = {
         "https://a2a-travel-planner.ping-devops.com/api/profile/loyalty",
     ),
     "GAP_RELATIONSHIP_AUDIENCE": os.environ.get("GAP_FLIGHT_AUDIENCE", "a2a://flights"),
-    # act.sub on AS-minted OBO tokens = the planner's bridge CLIENT ID at
-    # THIS tenant (a PingOne UUID), not a friendly name — the allowlist
-    # must name the client id or every delegation is rejected.
-    "AUTHORIZED_ACTORS": os.environ.get("P1_FLIGHTS_BRIDGE_CLIENT_ID", ""),
+    # act.sub on AS-minted OBO tokens = the planner's PLATFORM identity —
+    # the k8s Service Account subject of the planner pod (presented by the
+    # planner as actor_token; the AS validates it at the EKS OIDC issuer).
+    # No per-specialist IdP registration is involved.
+    "AUTHORIZED_ACTORS": os.environ.get(
+        "GAP_PLANNER_ACTOR", "system:serviceaccount:ping-devops-cprice:travel-planner"
+    ),
 }
 
 
