@@ -49,16 +49,20 @@ const KIND_STYLE: Record<string, { icon: string; label: string }> = {
   "a2a.request": { icon: "🤝", label: "A2A received" },
   "a2a.exchange": { icon: "🤝", label: "A2A exchange" },
   "a2a.outbound": { icon: "📡", label: "A2A sent" },
+  "a2a.inbound": { icon: "📥", label: "A2A reply" },
   "a2a.card_fetch": { icon: "📇", label: "Card fetched" },
   "mcp.call": { icon: "🔧", label: "MCP tool call" },
   "mcp.rpc": { icon: "🔧", label: "MCP rpc" },
   "mcp.setup": { icon: "🔌", label: "MCP session" },
   "agui.run": { icon: "💬", label: "Chat run" },
-  "auth.user": { icon: "🪪", label: "User token" },
-  "auth.token_exchange": { icon: "🔑", label: "Token exchange" },
-  "auth.token_exchange_failed": { icon: "🔑", label: "Exchange failed" },
-  "auth.accepted": { icon: "🛡️", label: "Auth accepted" },
+  "auth.user": { icon: "🪪", label: "Person verified" },
+  "auth.token_exchange": { icon: "🔑", label: "Delegation minted" },
+  "auth.token_exchange_failed": { icon: "🔑", label: "Delegation DENIED" },
+  "auth.loyalty_ref_pushed": { icon: "🎟️", label: "Loyalty ref attached" },
+  "auth.accepted": { icon: "🛡️", label: "Delegation accepted" },
   "auth.rejected": { icon: "🛡️", label: "Auth rejected" },
+  "auth.booking_refused": { icon: "🚫", label: "Booking refused" },
+  "auth.loyalty": { icon: "🎟️", label: "Loyalty resolved" },
   "trace.complete": { icon: "✓", label: "" },
 };
 
@@ -77,8 +81,21 @@ function describe(e: TraceEvent): string {
   switch (e.kind) {
     case "a2a.exchange":
       return `${d.rpc ?? "message/send"}: "${d.text ?? ""}"${d.elapsed_ms ? ` · ${d.elapsed_ms}ms` : ""}`;
-    case "a2a.outbound":
-      return `→ ${d.target}: ${d.rpc ?? "message/send"} "${d.text ?? ""}"`;
+    case "a2a.outbound": {
+      // The delegation in one line: WHO is being acted for, WHAT was
+      // asked, and WHAT context rides with it — in the order the
+      // architecture story is told.
+      const bits = [`→ ${d.target}`];
+      bits.push(`"${d.text ?? ""}"`);
+      const ctx: string[] = [];
+      if (d.identity) ctx.push("delegated identity");
+      if (d.loyalty_ref) ctx.push(`loyalty ${d.loyalty_ref}`);
+      if (ctx.length) bits.push(`· ${ctx.join(" · ")}`);
+      if (!d.identity && !d.loyalty_ref) bits.push("· (no identity attached)");
+      return bits.join(" ");
+    }
+    case "a2a.inbound":
+      return `← ${d.target}: ${d.kind ?? ""}${d.text ? ` "${d.text}"` : ""} · HTTP ${d.status ?? "?"}`;
     case "a2a.card_fetch":
       return String(d.url ?? "");
     case "mcp.call":
@@ -87,6 +104,31 @@ function describe(e: TraceEvent): string {
       return String(d.method ?? "");
     case "agui.run":
       return `"${d.message ?? ""}"`;
+    case "auth.user":
+      return `person ${String(d.sub ?? "").slice(0, 8)}… verified (session token)`;
+    case "auth.token_exchange": {
+      // The delegation in one line: the AS minted a token about the
+      // person, through the actor, FOR the destination.
+      const act = (d.act as { sub?: string } | undefined)?.sub ?? d.act ?? "";
+      return `person ${String(d.sub ?? "").slice(0, 8)}… acting as ${String(act).slice(0, 14)}… for ${d.aud ?? "?"} [${d.scope ?? ""}]`;
+    }
+    case "auth.token_exchange_failed":
+      return `${d.target}: ${d.error ?? "policy denied"} — falling back to raw token`;
+    case "auth.loyalty_ref_pushed":
+      return d.member_id
+        ? `member ${d.member_id} attached for ${d.target} (planner-owned linkage)`
+        : `no membership on file for ${d.target}`;
+    case "auth.accepted": {
+      const ref = d.loyalty_ref ? ` · member ${d.loyalty_ref}` : "";
+      const act = (d.act as { sub?: string } | undefined)?.sub ?? "";
+      return `OBO valid: person ${String(d.sub ?? "").slice(0, 8)}… via ${String(act || d.act || "").slice(0, 14)}… · aud ${d.aud ?? "?"}${ref}`;
+    }
+    case "auth.booking_refused":
+      return "no verified person — booking not made";
+    case "auth.loyalty":
+      return d.tier
+        ? `member ${d.member_id} → ${d.tier}${via_label(d.via)}`
+        : `member ${d.member_id} not in our records — no discount`;
     case "trace.complete": {
       const s = d.status ?? "?";
       const ms = d.elapsed_ms ?? "?";
@@ -95,6 +137,12 @@ function describe(e: TraceEvent): string {
     default:
       return JSON.stringify(d).slice(0, 120);
   }
+}
+
+function via_label(via: unknown): string {
+  if (via === "pushed-ref") return " (pushed ref, value from our records)";
+  if (via === "pull") return " (pulled linkage, value from our records)";
+  return "";
 }
 
 /** Every row is expandable: the detail JSON is the presenter's proof. Rows

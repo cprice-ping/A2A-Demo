@@ -69,23 +69,43 @@ export default function App() {
               <h2>How this works</h2>
               <ul>
                 <li>
-                  <strong>Flight/Hotel agents</strong> each run their own mock REST
-                  API, MCP server, and ADK agent — exposed over both A2A (agent
-                  card + JSON-RPC) and AG-UI (this chat).
+                  <strong>Travel Planner</strong> is a host agent: it verifies
+                  your login, then <em>delegates</em> to specialist agents over
+                  the A2A protocol — flight and hotel agents that each run on
+                  Google Agent Platform.
                 </li>
                 <li>
-                  <strong>Travel Planner</strong> is a host agent: it discovers the
-                  specialists via their agent cards and delegates over A2A.
+                  <strong>Reading the trace</strong> — each booking is a chain
+                  of trust, and the rows tell it in order:
+                  <br />
+                  🪪 <em>Person verified</em> — your login token checked
+                  <br />
+                  🔑 <em>Delegation minted</em> — the token exchange AS minted
+                  an OBO token: <code>sub</code>=you, <code>act</code>=the
+                  planner (its k8s identity), <code>aud</code>=the one
+                  specialist it's valid at
+                  <br />
+                  📡 <em>A2A sent</em> — the planner's delegation of your
+                  prompt, carrying that OBO token + your loyalty reference
+                  <br />
+                  🛡️ <em>Delegation accepted</em> — the specialist validated
+                  issuer, audience, and actor
+                  <br />
+                  🎟️ <em>Loyalty resolved</em> — the specialist matched the
+                  pushed member ref against <strong>its own</strong> records
+                  (the planner never sends a tier)
+                  <br />
+                  📥 <em>A2A reply</em> — the specialist's answer back
                 </li>
                 <li>
-                  Cards in the chat are <strong>AG-UI frontend tools</strong> — the
-                  agent calls <code>render_*_search</code> /{" "}
-                  <code>render_*_booking</code>, and this UI renders them.
+                  Every row is <strong>expandable</strong> — the JSON is the
+                  wire truth behind the summary.
                 </li>
               </ul>
               <p className="muted">
-                🤝/📡 rows show A2A traffic in and out of each agent; 🔧 rows are
-                MCP tool calls the LLM made. ⤢ expands the log.
+                🤝/📡 rows show A2A traffic in and out of each agent; a 🔑 row
+                is one P1AZ-governed delegation decision. No row for a step =
+                that step didn't happen.
               </p>
             </div>
           )}
