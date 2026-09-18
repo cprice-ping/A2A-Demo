@@ -68,14 +68,24 @@ def main() -> None:
         message_id="m-smoke",
         role=Role.ROLE_USER,
         parts=[Part(text=prompt)],
-        # Identity rides here once the planner attaches it (P3 wiring).
-        metadata={"a2a_demo_identity": ""},
+        # AUTH_REQUIRED defaults true on GAP: an empty identity must be
+        # REFUSED (fail-closed TS_FAILED with the auth message) — that
+        # refusal IS the smoke signal that the engine + gate are alive.
+        # Pass a real OBO token via --identity to exercise the happy path.
+        metadata={"a2a_demo_identity": os.environ.get("SMOKE_IDENTITY_TOKEN", "")},
     )
     result = asyncio.run(
         remote.on_message_send(request=SendMessageRequest(message=msg))
     )
     texts = _texts(result)
-    print("\n".join(texts)[:1200] if texts else f"(no text) {str(result)[:300]}")
+    if not texts:
+        print(f"(no text) {str(result)[:300]}")
+    else:
+        joined = "\n".join(texts)
+        if "Authentication" in joined and "required" in joined.lower():
+            print("GATE OK (fail-closed):", joined[:300])
+        else:
+            print(joined[:1200])
 
 
 if __name__ == "__main__":

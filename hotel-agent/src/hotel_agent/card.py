@@ -22,6 +22,12 @@ from a2a.types import (
 # Delegated-identity extension: same contract as the flight agent.
 IDENTITY_EXTENSION_URI = "https://github.com/cprice-ping/A2A-Demo/extensions/delegated-identity/v1"
 
+# Matches the GAP adapter's gate (gap_agent.AUTH_REQUIRED): the extension
+# is REQUIRED when the agent refuses anonymous execution.
+AUTH_REQUIRED = os.environ.get("AUTH_REQUIRED", "true").lower() in (
+    "1", "true", "yes"
+)
+
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8081")
 HOTELS_ISSUER = os.environ.get("P1_HOTELS_ISSUER", "")
 # Where callers acquire tokens, per caller type. The card declares BOTH as
@@ -116,7 +122,10 @@ def build_card() -> AgentCard:
                 AgentExtension(
                     uri=IDENTITY_EXTENSION_URI,
                     description="Delegated identity: OBO token (sub=person, act=caller, aud=relationship URI) in message metadata['a2a_demo_identity']",
-                    required=False,
+                    # REQUIRED when AUTH_REQUIRED (the GAP default): the
+                    # agent executes only with a valid delegated identity.
+                    # The self-hosted open-demo flavor keeps required=False.
+                    required=AUTH_REQUIRED,
                 )
             ],
         ),

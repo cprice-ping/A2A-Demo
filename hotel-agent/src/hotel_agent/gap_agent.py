@@ -23,6 +23,7 @@ forces the Vertex model path (model auth on GAP is Google's, not ours).
 
 from __future__ import annotations
 
+import os
 import uuid
 from typing import Any
 
@@ -52,6 +53,14 @@ from .trace import record
 # (SendMessageRequest.metadata). The GAP edge authenticates the caller's
 # GOOGLE identity; the PingOne person + actor delegation travels here.
 IDENTITY_METADATA_KEY = "a2a_demo_identity"
+
+# Fail-closed by default: a GAP agent is Internet-reachable; executing
+# anonymously makes it a prompt-injection and model-spend target. Every
+# request must carry a VALID delegated identity. (The self-hosted flavor
+# keeps its own AUTH_REQUIRED=false demo default via middleware.)
+AUTH_REQUIRED = os.environ.get("AUTH_REQUIRED", "true").lower() in (
+    "1", "true", "yes"
+)
 
 
 def _validate_delegated_token(token: str) -> dict[str, Any] | None:
@@ -113,9 +122,12 @@ class GapExecutorAdapter:
     An INVALID in-message token FAILS THE TASK (final TS_FAILED event with
     the validation error) — never silent degradation: a request that
     presents an identity must be treated as that identity or not run.
-    An ABSENT token proceeds — booking tools enforce person-scoping
-    themselves and refuse without a validated identity (search stays
-    anonymous-allowed).
+
+    An ABSENT token is governed by AUTH_REQUIRED (default TRUE on GAP):
+    an Internet-reachable agent that executes anonymously is a
+    prompt-injection and model-spend target, so the default is
+    fail-closed — no identity, no execution, including search. Set
+    AUTH_REQUIRED=false to re-enable anonymous access deliberately.
     """
 
     def __init__(self, runner: Any):
@@ -145,6 +157,34 @@ class GapExecutorAdapter:
         # Pushed loyalty member reference (delegated-identity extension) —
         # resolved against OUR records; see flight mirror for the contract.
         loyalty_ref = str(meta.get("a2a_loyalty_ref", "") or "")
+        if not token and AUTH_REQUIRED:
+            record(
+                "hotel-agent",
+                "auth.rejected",
+                {"reason": "no identity on an authenticated-only agent", "via": "gap-message"},
+            )
+            from google.adk.a2a import _compat  # noqa
+
+            await event_queue.enqueue_event(
+                _compat.make_task_status_update_event(
+                    task_id=context.task_id,
+                    context_id=context.context_id,
+                    status=_compat.make_task_status(
+                        _compat.TS_FAILED,
+                        message=Message(
+                            message_id=str(uuid.uuid4()),
+                            role=_compat.ROLE_AGENT,
+                            parts=[_compat.make_text_part(
+                                "Authentication required: this agent executes "
+                                "only with a valid delegated identity (no "
+                                "anonymous access). No action taken."
+                            )],
+                        ),
+                        final=True,
+                    ),
+                )
+            )
+            return
         if token:
             claims = _validate_delegated_token(token)
             if claims is None:

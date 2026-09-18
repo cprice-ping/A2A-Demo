@@ -26,8 +26,14 @@ from a2a.types import (
 
 # Delegated-identity extension: the agent accepts an OBO token in message
 # metadata under this key. The spec (token shape, validation rules) lives
-# at the URI; required=False because anonymous callers can still search.
+# at the URI. required follows AUTH_REQUIRED below.
 IDENTITY_EXTENSION_URI = "https://github.com/cprice-ping/A2A-Demo/extensions/delegated-identity/v1"
+
+# Matches the GAP adapter's gate (gap_agent.AUTH_REQUIRED): the extension
+# is REQUIRED when the agent refuses anonymous execution.
+AUTH_REQUIRED = os.environ.get("AUTH_REQUIRED", "true").lower() in (
+    "1", "true", "yes"
+)
 
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://localhost:8080")
 FLIGHTS_ISSUER = os.environ.get("P1_FLIGHTS_ISSUER", "")
@@ -127,7 +133,10 @@ def build_card() -> AgentCard:
                 AgentExtension(
                     uri=IDENTITY_EXTENSION_URI,
                     description="Delegated identity: OBO token (sub=person, act=caller, aud=relationship URI) in message metadata['a2a_demo_identity']",
-                    required=False,
+                    # REQUIRED when AUTH_REQUIRED (the GAP default): the
+                    # agent executes only with a valid delegated identity.
+                    # The self-hosted open-demo flavor keeps required=False.
+                    required=AUTH_REQUIRED,
                 )
             ],
         ),
