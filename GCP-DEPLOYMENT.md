@@ -144,6 +144,18 @@ serve mixed audiences (planner-delegated persons + planner service
 sessions) or be a dedicated planner-only conduit — that is a deployment
 choice, not a code difference.
 
+The same ladder runs at the PLANNER's own front door (demo posture):
+the prompt surfaces (`/agui`, `/a2a`) REQUIRE a person — an
+Internet-reachable host agent that executes anonymously is itself a
+prompt-injection and model-spend target, so AUTH_REQUIRED=true on the
+k8s deployment refuses any unauthenticated execution (verified live:
+anonymous POST → 401, visible in the trace panel). The planner has no
+person-less rung in this demo — it is a person-mediated host by role.
+Card + trace endpoints stay public deliberately: A2A discovery and the
+demo's observability surface are for everyone; the agent is not.
+Every layer of the chain — browser → planner → GAP specialist →
+booking tool — refuses unauthenticated execution.
+
 ### The pattern composes (what an enterprise deployment adds)
 
 This demo implements the identity→A2A pattern at ONE tier. The
