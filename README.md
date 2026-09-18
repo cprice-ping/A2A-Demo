@@ -91,6 +91,18 @@ Open http://localhost:5173 and try:
 - **Hotel tab**: "Hotels in NYC for 2 nights from 2026-09-20"
 - **Planner tab**: "Plan a trip: flight SFO→JFK on 2026-09-20 for 2, plus a hotel in NYC for 2 nights" — watch it delegate to both specialists over A2A
 
+## Two flavors: protocol tutorial vs trust architecture
+
+The same three agents run in two flavors, and the difference is the point:
+
+| | **Self-hosted (compose / local)** | **Deployed (k8s planner + GAP specialists)** |
+|---|---|---|
+| What it shows | the **A2A protocol surface**: cards, `message/send`, host-agent delegation, AG-UI chat + widget cards, the trace panel | the same agents with the **identity → A2A boundary** enforced: person gate, RFC 8693 delegation at an AS, P1AZ policy, in-agent OBO validation, presence rungs |
+| Identity | **anonymous by design** (`AUTH_REQUIRED=false`) — no IdP, no AS, no policy needed | fail-closed end to end; every layer refuses unauthenticated execution |
+| What it is NOT | **not the trust architecture** — no delegation semantics, no P1AZ, no person/actor distinction | — |
+
+Start with compose to learn A2A itself; then run (or read) the deployed topology to see what changes when identity arrives — same code, same delegation pattern, one env var flips the trust boundaries on (`AUTH_REQUIRED=true`). The trace panel makes the contrast visible: compose shows clean A2A traffic with no `auth.*` rows; deployed shows `auth.user` → `auth.token_exchange` → `auth.accepted` at every seam.
+
 ## docker-compose
 
 ```bash
@@ -100,7 +112,11 @@ Open http://localhost:5173 and try:
 docker compose up --build
 ```
 
-Same ports as above. The flight agent and planner mount your `application_default_credentials.json` — no key; the hotel agent takes `GOOGLE_API_KEY`.
+Same ports as above. The flight agent and planner mount your `application_default_credentials.json` — no key; the hotel agent takes `GOOGLE_API_KEY`. No PingOne configuration is required — the identity layer is optional throughout (`P1_*`/`AS_*` default empty) and the specialists log their posture at startup:
+
+```
+identity: DISABLED — open demo mode (AUTH_REQUIRED=false); every request executes anonymously
+```
 
 ## Identity (PingOne)
 

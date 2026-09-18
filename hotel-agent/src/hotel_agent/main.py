@@ -45,6 +45,14 @@ a2a_app = to_a2a(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Posture banner: the flavor's identity stance, self-describing in
+    # logs so an open demo can't be mistaken for the secured deployment.
+    from .auth import AUTH_REQUIRED
+
+    print(
+        f"identity: {'ENABLED — bearer gate on /a2a (AUTH_REQUIRED=true)' if AUTH_REQUIRED else 'DISABLED — open demo mode (AUTH_REQUIRED=false); every request executes anonymously'}",
+        flush=True,
+    )
     # Mounted sub-apps' lifespans do NOT run automatically — the parent must run
     # them explicitly. FastMCP's lifespan initializes its session manager;
     # to_a2a()'s lifespan is where it ATTACHES its routes (a fresh to_a2a app
