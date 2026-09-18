@@ -25,3 +25,15 @@ adc.json
 
 # TokenExchange-AS real credentials (k8s manifests live here; secrets never)
 token-exchange/secret.yaml
+
+# Impeccable working artifacts + product/design notes (session tooling)
+.impeccable/
+DESIGN.md
+PRODUCT.md
+
+# Stray npm artifact at repo root (the UI has its own package.json/lock)
+/package-lock.json
+
+# TokenExchange-AS content lives in its own repo; this dir only mirrors
+# deployment manifests + holds a real secret that must never be committed
+token-exchange/
