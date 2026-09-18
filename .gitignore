@@ -22,3 +22,6 @@ adc.json
 .vscode/
 *.tsbuildinfo
 *.swp
+
+# TokenExchange-AS real credentials (k8s manifests live here; secrets never)
+token-exchange/secret.yaml
